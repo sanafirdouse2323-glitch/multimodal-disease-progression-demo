@@ -28,9 +28,11 @@ CLINICAL_BASE_COLS = [
 TREATMENT_COLS = [
     "treatment_flag",
     "medicine_type",
-    "medicine_dose",
+    "dose_per_day",
+    "frequency_per_day",
     "time_since_treatment_start",
-    "cumulative_treatment",
+    "treatment_duration_days",
+    "cumulative_exposure",
     "treatment_change",
 ]
 
@@ -62,15 +64,17 @@ def generate_demo_dataset(n_patients=500, seed=42):
         on_treatment = False
         treatment_start_time = None
         medicine_type = 0
-        cumulative_treatment = 0.0
+        cumulative_exposure = 0.0
 
         for visit_idx, months in enumerate(visit_times):
             latent = baseline_risk + progression_rate * months + rng.normal(0.0, 0.7)
 
             treatment_flag = 0
             medicine_type = 0
-            medicine_dose = 0.0
+            dose_per_day = 0.0
+            frequency_per_day = 0.0
             time_since_treatment_start = 0.0
+            treatment_duration_days = 0.0
             treatment_change = 0
 
             if latent > -0.5:
@@ -98,21 +102,29 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 efficacy_by_type = {1: 0.8, 2: 1.0, 3: 1.25, 4: 1.6}
                 efficacy = efficacy_by_type.get(medicine_type, 1.0)
 
-                dose_base = 0.6 + 0.4 * medicine_type
-                medicine_dose = max(0.0, dose_base + 0.2 * rng.normal(0.0, 1.0))
+                dose_per_day = 0.8 + 0.7 * medicine_type + 0.25 * rng.normal(0.0, 1.0)
+                dose_per_day = max(0.0, dose_per_day)
+
+                frequency_per_day = float(int(rng.integers(1, 4)))
+
                 time_since_treatment_start = months - treatment_start_time
-                cumulative_treatment += medicine_dose
+                treatment_duration_days = max(0.0, time_since_treatment_start * 30.0)
+
+                daily_exposure = dose_per_day * frequency_per_day
+                cumulative_exposure += daily_exposure
 
                 latent = latent - (
-                    efficacy * medicine_dose * (0.35 + 0.12 * np.log1p(time_since_treatment_start + 1.0))
+                    efficacy * cumulative_exposure * (0.12 + 0.08 * np.log1p(treatment_duration_days + 1.0))
                 )
 
             if on_treatment and rng.random() < 0.08:
                 on_treatment = False
                 treatment_start_time = None
                 medicine_type = 0
-                medicine_dose = 0.0
+                dose_per_day = 0.0
+                frequency_per_day = 0.0
                 time_since_treatment_start = 0.0
+                treatment_duration_days = 0.0
                 treatment_flag = 0
 
             if latent < -1.5:
@@ -159,9 +171,11 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 "comorbidities": comorbidities,
                 "treatment_flag": treatment_flag,
                 "medicine_type": medicine_type,
-                "medicine_dose": medicine_dose,
+                "dose_per_day": dose_per_day,
+                "frequency_per_day": frequency_per_day,
                 "time_since_treatment_start": time_since_treatment_start,
-                "cumulative_treatment": cumulative_treatment,
+                "treatment_duration_days": treatment_duration_days,
+                "cumulative_exposure": cumulative_exposure,
                 "treatment_change": treatment_change,
                 "steps": steps,
                 "sleep_hours": sleep_hours,
@@ -466,7 +480,7 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 # Main
 # ----------------------------
 def main():
-    print("Generating synthetic multimodal disease progression dataset with medicine type and treatment history...")
+    print("Generating synthetic multimodal disease progression dataset with treatment and medicine exposure history...")
     df = generate_demo_dataset(n_patients=500, seed=42)
 
     train_df, valid_df = split_by_patient(df, valid_fraction=0.2, seed=42)

@@ -10,6 +10,7 @@ The prototype simulates a realistic health-data setting in which patient traject
 - wearable time-series signals
 - imaging-derived features
 - treatment and medication history
+- dose, frequency, and exposure history
 - irregular visit schedules
 - missing observations
 
@@ -17,16 +18,18 @@ At each visit, the model predicts the patient’s disease stage. Treatment varia
 
 - treatment flag
 - medicine type
-- medicine dose
+- dose per day
+- frequency per day
 - time since treatment started
-- cumulative treatment exposure
+- treatment duration in days
+- cumulative exposure
 - treatment change indicator
 
 This makes the dataset more clinically realistic than a model that ignores treatment effects.
 
 ## Dataset
 
-The synthetic dataset includes patient trajectories spanning multiple irregular visits. Disease stage increases with patient-specific latent risk and time, while each modality is generated to reflect disease progression. Importantly, treatment initiation and medication exposure are allowed to modify the disease trajectory, creating a more realistic longitudinal setting.
+The synthetic dataset includes patient trajectories spanning multiple irregular visits. Disease stage increases with patient-specific latent risk and time, while each modality is generated to reflect disease progression. Importantly, treatment initiation, dose, frequency, duration, and cumulative exposure are allowed to modify the disease trajectory, creating a more realistic longitudinal setting.
 
 ## Model
 

@@ -1,6 +1,6 @@
 # Multimodal Disease Progression Demo
 
-A synthetic, reproducible prototype for modelling disease progression from multimodal health data, including clinical records, wearable time-series measurements, imaging-derived features, and time-varying treatment information.
+A synthetic, reproducible prototype for modelling disease progression from multimodal health data, including clinical records, wearable time-series measurements, imaging-derived features, and time-varying treatment exposure.
 
 This repository is designed as a research prototype and PhD-style demo project. It demonstrates a synthetic setting that reflects common challenges in longitudinal clinical data, including irregular visit schedules, missing data, and evolving treatment exposure.
 
@@ -8,7 +8,7 @@ This repository is designed as a research prototype and PhD-style demo project. 
 
 Chronic diseases often develop gradually over years, and their trajectories vary substantially between individuals. Understanding this progression is essential for early detection, personalised intervention, and improved long-term patient outcomes. Large multimodal health datasets that combine medical imaging, wearable sensor data, and clinical measurements now make it possible to study disease progression from multiple complementary perspectives.
 
-A key challenge is that disease progression is usually influenced not only by observed biomarkers, but also by treatment decisions and medication exposure over time. Treatment can modify the apparent progression trajectory, and different medicine types may have different effects on disease dynamics. This motivates the inclusion of time-varying treatment variables in any realistic progression model.
+A key challenge is that disease progression is usually influenced not only by observed biomarkers, but also by treatment decisions and medication exposure over time. Treatment can modify the apparent progression trajectory, and different medicine types may have different effects on disease dynamics. In a realistic longitudinal setting, treatment depends on more than a binary flag: the dose amount, frequency, duration, and cumulative exposure are all relevant to progression.
 
 ## Research question
 
@@ -29,6 +29,7 @@ The synthetic data generator creates a realistic longitudinal patient dataset wi
 - wearable measurements
 - imaging-derived features
 - treatment indicators and medication information
+- dose, frequency, duration, and cumulative exposure variables
 - missing values in each modality
 
 This makes the dataset suitable as a proof-of-concept benchmark for disease progression research.
@@ -39,9 +40,11 @@ The current prototype explicitly includes treatment variables, including:
 
 - treatment flag
 - medicine type
-- medicine dose
+- dose per day
+- frequency per day
 - time since treatment started
-- cumulative treatment exposure
+- treatment duration in days
+- cumulative exposure
 - treatment change indicator
 
 These are treated as time-varying clinical covariates that can influence disease trajectory. This makes the synthetic benchmark more realistic than a model that only includes imaging, wearables, and generic clinical variables.
@@ -51,7 +54,7 @@ These are treated as time-varying clinical covariates that can influence disease
 The demo implements a multimodal temporal model with the following structure:
 
 1. Modality-specific encoders for clinical, wearable, and imaging inputs
-2. Inclusion of a dedicated treatment stream in the clinical branch
+2. Inclusion of a treatment-aware clinical stream
 3. Fusion of modality embeddings into a shared latent representation
 4. Temporal modelling through an LSTM sequence model
 5. Prediction of disease stage at each visit
@@ -109,7 +112,7 @@ python demo_disease_progression.py
 
 This script will:
 
-- generate a synthetic multimodal dataset with treatment history
+- generate a synthetic multimodal dataset with treatment and medicine exposure history
 - simulate irregular visits and missingness
 - build patient-level sequences
 - train the disease progression model
@@ -153,7 +156,7 @@ This is a synthetic demonstration project and is not intended to represent a rea
 
 ## Summary
 
-This repository demonstrates a realistic foundation for disease progression modelling using multimodal longitudinal data, including treatment and medicine-type information. It captures the central technical challenges of the field: irregular follow-up, missing observations, multimodal integration, evolving treatment exposure, and temporal disease dynamics.
+This repository demonstrates a realistic synthetic foundation for disease progression modelling using multimodal longitudinal data, including treatment and medicine exposure variables. It captures several central technical challenges of the field: irregular follow-up, missing observations, multimodal integration, evolving treatment exposure, and temporal disease dynamics.
 
 It is appropriate as a proof-of-concept baseline for a PhD project, research proposal, or demo presentation.
 
