@@ -14,8 +14,8 @@ CLINICAL_COLS = [
     "meds",
     "comorbidities",
     "treatment_flag",
-    "treatment_type",
-    "treatment_dose",
+    "medicine_type",
+    "medicine_dose",
     "time_since_treatment_start",
     "cumulative_treatment",
     "treatment_change",
@@ -44,9 +44,8 @@ def generate_demo_dataset(n_patients=500, seed=42):
 
         on_treatment = False
         treatment_start_time = None
-        treatment_type = 0
+        medicine_type = 0
         cumulative_treatment = 0.0
-        previous_treatment_flag = 0
 
         for visit_idx, months in enumerate(visit_times):
             # Natural disease progression signal before treatment is considered
@@ -54,8 +53,8 @@ def generate_demo_dataset(n_patients=500, seed=42):
 
             # Treatment assignment is time-varying and disease-dependent
             treatment_flag = 0
-            treatment_type = 0
-            treatment_dose = 0.0
+            medicine_type = 0
+            medicine_dose = 0.0
             time_since_treatment_start = 0.0
             treatment_change = 0
 
@@ -63,7 +62,7 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 if not on_treatment:
                     on_treatment = True
                     treatment_start_time = months
-                    treatment_type = int(rng.integers(1, 4))
+                    medicine_type = int(rng.integers(1, 5))
                     treatment_change = 1
                     treatment_flag = 1
                 else:
@@ -71,30 +70,37 @@ def generate_demo_dataset(n_patients=500, seed=42):
 
             if on_treatment:
                 treatment_flag = 1
-                treatment_type = max(1, min(3, treatment_type if treatment_type > 0 else 1))
-                # Dose increases gradually and changes more often in higher severity patients
-                dose_base = 0.6 + 0.8 * (treatment_type - 1)
-                if rng.random() < 0.20:
+                if rng.random() < 0.15:
+                    medicine_type = int(rng.integers(1, 5))
                     treatment_change = 1
-                treatment_dose = dose_base + 0.2 * rng.normal(0.0, 1.0)
-                treatment_dose = max(0.0, treatment_dose)
-                time_since_treatment_start = months - treatment_start_time if treatment_start_time is not None else 0.0
-                cumulative_treatment += treatment_dose
+                else:
+                    medicine_type = medicine_type if medicine_type > 0 else 1
 
-                # Treatment attenuates progression in a simple but realistic way
-                treatment_effect = 0.9 + 1.1 * treatment_type + 0.3 * treatment_dose
-                latent = latent - treatment_effect * (0.40 + 0.15 * np.log1p(time_since_treatment_start + 1.0))
+                efficacy_by_type = {
+                    1: 0.8,
+                    2: 1.0,
+                    3: 1.25,
+                    4: 1.6,
+                }
+                efficacy = efficacy_by_type.get(medicine_type, 1.0)
+
+                dose_base = 0.6 + 0.4 * medicine_type
+                medicine_dose = max(0.0, dose_base + 0.2 * rng.normal(0.0, 1.0))
+                time_since_treatment_start = months - treatment_start_time if treatment_start_time is not None else 0.0
+                cumulative_treatment += medicine_dose
+
+                latent = latent - (
+                    efficacy * medicine_dose * (0.35 + 0.12 * np.log1p(time_since_treatment_start + 1.0))
+                )
 
             if on_treatment and rng.random() < 0.08:
                 on_treatment = False
                 treatment_start_time = None
-                treatment_type = 0
-                treatment_flag = 0
-                treatment_dose = 0.0
+                medicine_type = 0
+                medicine_dose = 0.0
                 time_since_treatment_start = 0.0
-                cumulative_treatment = cumulative_treatment
+                treatment_flag = 0
 
-            # Final stage is determined after treatment adjustment
             if latent < -1.5:
                 stage = 0
             elif latent < -0.2:
@@ -104,21 +110,18 @@ def generate_demo_dataset(n_patients=500, seed=42):
             else:
                 stage = 3
 
-            # Clinical features
             lab1 = 82.0 + 12.0 * stage + rng.normal(0.0, 6.5)
             lab2 = 5.0 + 2.2 * stage + rng.normal(0.0, 1.5)
             vitals = 70.0 + 5.5 * stage + rng.normal(0.0, 5.0)
             meds = int(max(0, rng.poisson(2 + stage)))
             comorbidities = int(max(0, rng.poisson(1 + stage / 2)))
 
-            # Wearable features
             steps = max(1000, 9000 - 1400 * stage + rng.normal(0.0, 2000))
             sleep_hours = max(4.0, 8.0 - 0.8 * stage + rng.normal(0.0, 1.2))
             heart_rate = 68.0 + 7.0 * stage + rng.normal(0.0, 5.0)
             hrv = 52.0 - 7.5 * stage + rng.normal(0.0, 8.0)
             activity = max(0.0, min(1.0, 0.7 - 0.18 * stage + rng.normal(0.0, 0.18)))
 
-            # Imaging-derived features
             imaging_score = 15.0 + 18.0 * stage + rng.normal(0.0, 5.0)
             lesion_area = max(0.0, 3.0 + 6.0 * stage + rng.normal(0.0, 2.5))
             atrophy_index = max(0.0, 0.15 + 0.25 * stage + rng.normal(0.0, 0.08))
@@ -141,8 +144,8 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 "meds": meds,
                 "comorbidities": comorbidities,
                 "treatment_flag": treatment_flag,
-                "treatment_type": treatment_type,
-                "treatment_dose": treatment_dose,
+                "medicine_type": medicine_type,
+                "medicine_dose": medicine_dose,
                 "time_since_treatment_start": time_since_treatment_start,
                 "cumulative_treatment": cumulative_treatment,
                 "treatment_change": treatment_change,
@@ -398,7 +401,7 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 
 
 def main():
-    print("Generating synthetic multimodal disease progression dataset with treatment history...")
+    print("Generating synthetic multimodal disease progression dataset with medicine type and treatment history...")
     df = generate_demo_dataset(n_patients=500, seed=42)
 
     print("\nDataset preview:")
@@ -407,6 +410,8 @@ def main():
     print(df["stage"].value_counts().sort_index())
     print("\nTreatment summary:")
     print(df["treatment_flag"].value_counts(normalize=True))
+    print("\nMedicine type summary:")
+    print(df["medicine_type"].value_counts(normalize=True))
     print("\nMissing values:")
     print(df.isna().sum())
 
@@ -431,7 +436,7 @@ def main():
     model = train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3)
 
     print("\nModel training complete.")
-    print("Prototype includes treatment history as a time-varying clinical covariate.")
+    print("Prototype includes treatment and medicine type as time-varying clinical covariates.")
     print("This is a realistic baseline for disease progression modelling under treatment exposure.")
 
 

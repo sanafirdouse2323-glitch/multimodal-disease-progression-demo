@@ -9,23 +9,34 @@ The prototype simulates a realistic health-data setting in which patient traject
 - clinical records
 - wearable time-series signals
 - imaging-derived features
+- treatment and medication history
 - irregular visit schedules
 - missing observations
 
-At each visit, the model predicts the patient’s disease stage. This creates a realistic and reproducible benchmark for disease trajectory modelling.
+At each visit, the model predicts the patient’s disease stage. Treatment variables include:
+
+- treatment flag
+- medicine type
+- medicine dose
+- time since treatment started
+- cumulative treatment exposure
+- treatment change indicator
+
+This makes the dataset more clinically realistic than a model that ignores treatment effects.
 
 ## Dataset
 
-The synthetic dataset includes patient trajectories spanning multiple irregular visits. The disease stage increases with patient-specific latent risk and time, while each modality is generated to reflect disease progression.
+The synthetic dataset includes patient trajectories spanning multiple irregular visits. Disease stage increases with patient-specific latent risk and time, while each modality is generated to reflect disease progression. Importantly, treatment initiation and medication exposure are allowed to modify the disease trajectory, creating a more realistic longitudinal setting.
 
 ## Model
 
 The model uses:
 
 1. modality-specific encoders for clinical, wearable, and imaging data
-2. multimodal fusion into a shared latent representation
-3. an LSTM to model longitudinal disease dynamics
-4. a stage-classification head
+2. a treatment-aware clinical stream
+3. multimodal fusion into a shared latent representation
+4. an LSTM to model longitudinal disease dynamics
+5. a stage-classification head
 
 The design is intentionally compact but realistic enough to support a PhD demo or research prototype.
 
