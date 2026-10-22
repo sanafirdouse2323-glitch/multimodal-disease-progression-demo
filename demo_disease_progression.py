@@ -4,15 +4,28 @@ import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import accuracy_score, f1_score
+import random
 
-np.random.seed(42)
+# ----------------------------
+# Basic reproducibility
+# ----------------------------
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
 
-CLINICAL_COLS = [
-    "lab1",
-    "lab2",
-    "vitals",
-    "meds",
-    "comorbidities",
+set_seed(42)
+
+# ----------------------------
+# Feature groups
+# ----------------------------
+CLINICAL_BASE_COLS = [
+    "lab1", "lab2", "vitals", "meds", "comorbidities"
+]
+
+TREATMENT_COLS = [
     "treatment_flag",
     "medicine_type",
     "medicine_dose",
@@ -20,10 +33,14 @@ CLINICAL_COLS = [
     "cumulative_treatment",
     "treatment_change",
 ]
+
 WEARABLE_COLS = ["steps", "sleep_hours", "heart_rate", "hrv", "activity"]
 IMAGING_COLS = ["imaging_score", "lesion_area", "atrophy_index", "tissue_change"]
+ALL_CLINICAL_COLS = CLINICAL_BASE_COLS + TREATMENT_COLS
 
-
+# ----------------------------
+# Synthetic data generator
+# ----------------------------
 def generate_demo_dataset(n_patients=500, seed=42):
     rng = np.random.default_rng(seed)
     rows = []
@@ -48,27 +65,26 @@ def generate_demo_dataset(n_patients=500, seed=42):
         cumulative_treatment = 0.0
 
         for visit_idx, months in enumerate(visit_times):
-            # Natural disease progression signal before treatment is considered
             latent = baseline_risk + progression_rate * months + rng.normal(0.0, 0.7)
 
-            # Treatment assignment is time-varying and disease-dependent
             treatment_flag = 0
             medicine_type = 0
             medicine_dose = 0.0
             time_since_treatment_start = 0.0
             treatment_change = 0
 
-            if latent > -0.5 and rng.random() < (0.15 + 0.25 * max(0.0, (latent + 2.0) / 4.0)):
-                if not on_treatment:
-                    on_treatment = True
-                    treatment_start_time = months
-                    medicine_type = int(rng.integers(1, 5))
-                    treatment_change = 1
-                    treatment_flag = 1
-                else:
-                    treatment_flag = 1
+            if latent > -0.5:
+                p_start = 0.10 + 0.30 * min(1.0, max(0.0, (latent + 2.0) / 4.0))
+            else:
+                p_start = 0.05
 
-            if on_treatment:
+            if (not on_treatment) and (rng.random() < p_start):
+                on_treatment = True
+                treatment_start_time = months
+                medicine_type = int(rng.integers(1, 5))
+                treatment_flag = 1
+                treatment_change = 1
+            elif on_treatment:
                 treatment_flag = 1
                 if rng.random() < 0.15:
                     medicine_type = int(rng.integers(1, 5))
@@ -76,17 +92,15 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 else:
                     medicine_type = medicine_type if medicine_type > 0 else 1
 
-                efficacy_by_type = {
-                    1: 0.8,
-                    2: 1.0,
-                    3: 1.25,
-                    4: 1.6,
-                }
+            if on_treatment:
+                treatment_flag = 1
+
+                efficacy_by_type = {1: 0.8, 2: 1.0, 3: 1.25, 4: 1.6}
                 efficacy = efficacy_by_type.get(medicine_type, 1.0)
 
                 dose_base = 0.6 + 0.4 * medicine_type
                 medicine_dose = max(0.0, dose_base + 0.2 * rng.normal(0.0, 1.0))
-                time_since_treatment_start = months - treatment_start_time if treatment_start_time is not None else 0.0
+                time_since_treatment_start = months - treatment_start_time
                 cumulative_treatment += medicine_dose
 
                 latent = latent - (
@@ -131,13 +145,13 @@ def generate_demo_dataset(n_patients=500, seed=42):
                 "patient_id": pid,
                 "visit_idx": visit_idx,
                 "time_months": months,
+                "stage": stage,
                 "age": age,
                 "sex": sex,
                 "bmi": bmi,
                 "baseline_risk": baseline_risk,
                 "progression_rate": progression_rate,
                 "latent_score": latent,
-                "stage": stage,
                 "lab1": lab1,
                 "lab2": lab2,
                 "vitals": vitals,
@@ -167,7 +181,7 @@ def generate_demo_dataset(n_patients=500, seed=42):
     wearable_missing = 0.08 + 0.18 * df["stage"] / 3.0
     imaging_missing = 0.10 + 0.20 * df["stage"] / 3.0
 
-    for col in CLINICAL_COLS:
+    for col in ALL_CLINICAL_COLS:
         mask = rng.random(len(df)) < clinical_missing.to_numpy()
         df.loc[mask, col] = np.nan
 
@@ -181,39 +195,78 @@ def generate_demo_dataset(n_patients=500, seed=42):
 
     return df
 
+# ----------------------------
+# Train-valid split by patient
+# ----------------------------
+def split_by_patient(df, valid_fraction=0.2, seed=42):
+    rng = np.random.default_rng(seed)
+    patient_ids = sorted(df["patient_id"].unique())
+    rng.shuffle(patient_ids)
 
+    split_idx = int(len(patient_ids) * (1.0 - valid_fraction))
+    train_ids = set(patient_ids[:split_idx])
+    valid_ids = set(patient_ids[split_idx:])
+
+    train_df = df[df["patient_id"].isin(train_ids)].copy()
+    valid_df = df[df["patient_id"].isin(valid_ids)].copy()
+    return train_df, valid_df
+
+# ----------------------------
+# Standardize features using train stats only
+# ----------------------------
+def compute_group_stats(train_df, cols):
+    stats = {}
+    for col in cols:
+        mean = train_df[col].mean()
+        std = train_df[col].std(ddof=0)
+        if pd.isna(std) or std < 1e-8:
+            std = 1.0
+        stats[col] = {"mean": mean, "std": std}
+    return stats
+
+
+def apply_standardization(df, stats):
+    for col, info in stats.items():
+        df[col] = (df[col] - info["mean"]) / info["std"]
+        df[col] = df[col].fillna(0.0)
+    return df
+
+# ----------------------------
+# Sequence creation
+# ----------------------------
 def make_patient_sequences(df):
     patient_sequences = []
+
     for _, g in df.groupby("patient_id"):
         g = g.sort_values("visit_idx").reset_index(drop=True)
 
-        clinical = g[CLINICAL_COLS].fillna(0.0).to_numpy(dtype=np.float32)
+        clinical = g[ALL_CLINICAL_COLS].fillna(0.0).to_numpy(dtype=np.float32)
         wearable = g[WEARABLE_COLS].fillna(0.0).to_numpy(dtype=np.float32)
         imaging = g[IMAGING_COLS].fillna(0.0).to_numpy(dtype=np.float32)
 
-        clinical_mask = g[CLINICAL_COLS].notna().astype(float).to_numpy(dtype=np.float32)
+        clinical_mask = g[ALL_CLINICAL_COLS].notna().astype(float).to_numpy(dtype=np.float32)
         wearable_mask = g[WEARABLE_COLS].notna().astype(float).to_numpy(dtype=np.float32)
         imaging_mask = g[IMAGING_COLS].notna().astype(float).to_numpy(dtype=np.float32)
+
         labels = g["stage"].to_numpy(dtype=np.int64)
 
-        patient_sequences.append(
-            {
-                "clinical": clinical,
-                "clinical_mask": clinical_mask,
-                "wearable": wearable,
-                "wearable_mask": wearable_mask,
-                "imaging": imaging,
-                "imaging_mask": imaging_mask,
-                "label": labels,
-            }
-        )
-
+        patient_sequences.append({
+            "clinical": clinical,
+            "clinical_mask": clinical_mask,
+            "wearable": wearable,
+            "wearable_mask": wearable_mask,
+            "imaging": imaging,
+            "imaging_mask": imaging_mask,
+            "label": labels
+        })
     return patient_sequences
 
-
+# ----------------------------
+# PyTorch dataset and collate
+# ----------------------------
 class PatientSequenceDataset(Dataset):
-    def __init__(self, patient_sequences):
-        self.data = patient_sequences
+    def __init__(self, sequences):
+        self.data = sequences
 
     def __len__(self):
         return len(self.data)
@@ -260,7 +313,9 @@ def collate_patient_sequences(batch):
         "labels": torch.tensor(np.stack(labels_list), dtype=torch.long),
     }
 
-
+# ----------------------------
+# Model
+# ----------------------------
 class ModalityEncoder(nn.Module):
     def __init__(self, input_dim, hidden_dim):
         super().__init__()
@@ -285,7 +340,7 @@ class MultimodalProgressionModel(nn.Module):
         self.fusion = nn.Sequential(
             nn.Linear(hidden_dim * 3, hidden_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            nn.Dropout(0.1)
         )
 
         self.lstm = nn.LSTM(
@@ -293,7 +348,7 @@ class MultimodalProgressionModel(nn.Module):
             hidden_size=hidden_dim,
             num_layers=2,
             batch_first=True,
-            dropout=0.1,
+            dropout=0.1
         )
 
         self.classifier = nn.Linear(hidden_dim, n_classes)
@@ -310,8 +365,13 @@ class MultimodalProgressionModel(nn.Module):
         logits = self.classifier(out)
         return logits
 
+# ----------------------------
+# Training
+# ----------------------------
+def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3, device=None):
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3):
     train_dataset = PatientSequenceDataset(train_sequences)
     valid_dataset = PatientSequenceDataset(valid_sequences)
 
@@ -319,12 +379,12 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
     valid_loader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_patient_sequences)
 
     model = MultimodalProgressionModel(
-        clinical_dim=len(CLINICAL_COLS),
+        clinical_dim=len(ALL_CLINICAL_COLS),
         wearable_dim=len(WEARABLE_COLS),
         imaging_dim=len(IMAGING_COLS),
         hidden_dim=32,
-        n_classes=4,
-    )
+        n_classes=4
+    ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
@@ -337,15 +397,15 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
         total_loss = 0.0
 
         for batch in train_loader:
-            optimizer.zero_grad()
+            clinical = batch["clinical"].to(device)
+            clinical_mask = batch["clinical_mask"].to(device)
+            wearable = batch["wearable"].to(device)
+            wearable_mask = batch["wearable_mask"].to(device)
+            imaging = batch["imaging"].to(device)
+            imaging_mask = batch["imaging_mask"].to(device)
+            labels = batch["labels"].to(device)
 
-            clinical = batch["clinical"]
-            clinical_mask = batch["clinical_mask"]
-            wearable = batch["wearable"]
-            wearable_mask = batch["wearable_mask"]
-            imaging = batch["imaging"]
-            imaging_mask = batch["imaging_mask"]
-            labels = batch["labels"]
+            optimizer.zero_grad()
 
             logits = model(clinical, clinical_mask, wearable, wearable_mask, imaging, imaging_mask)
             logits_flat = logits.reshape(-1, logits.size(-1))
@@ -353,7 +413,9 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 
             loss = criterion(logits_flat, labels_flat)
             loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             optimizer.step()
+
             total_loss += loss.item()
 
         avg_train_loss = total_loss / max(1, len(train_loader))
@@ -365,19 +427,20 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 
         with torch.no_grad():
             for batch in valid_loader:
-                clinical = batch["clinical"]
-                clinical_mask = batch["clinical_mask"]
-                wearable = batch["wearable"]
-                wearable_mask = batch["wearable_mask"]
-                imaging = batch["imaging"]
-                imaging_mask = batch["imaging_mask"]
-                labels = batch["labels"]
+                clinical = batch["clinical"].to(device)
+                clinical_mask = batch["clinical_mask"].to(device)
+                wearable = batch["wearable"].to(device)
+                wearable_mask = batch["wearable_mask"].to(device)
+                imaging = batch["imaging"].to(device)
+                imaging_mask = batch["imaging_mask"].to(device)
+                labels = batch["labels"].to(device)
 
                 logits = model(clinical, clinical_mask, wearable, wearable_mask, imaging, imaging_mask)
                 logits_flat = logits.reshape(-1, logits.size(-1))
                 labels_flat = labels.reshape(-1)
 
-                val_loss += criterion(logits_flat, labels_flat).item()
+                loss = criterion(logits_flat, labels_flat)
+                val_loss += loss.item()
 
                 pred = logits.argmax(dim=-1)
                 valid_mask = labels != -100
@@ -386,7 +449,7 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 
         avg_val_loss = val_loss / max(1, len(valid_loader))
         acc = accuracy_score(all_label, all_pred)
-        macro_f1 = f1_score(all_label, all_pred, average="macro")
+        macro_f1 = f1_score(all_label, all_pred, average="macro", zero_division=0)
 
         print(f"Epoch {epoch + 1:02d} | train_loss={avg_train_loss:.4f} | val_loss={avg_val_loss:.4f} | acc={acc:.4f} | macro_f1={macro_f1:.4f}")
 
@@ -399,46 +462,39 @@ def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1
 
     return model
 
-
+# ----------------------------
+# Main
+# ----------------------------
 def main():
     print("Generating synthetic multimodal disease progression dataset with medicine type and treatment history...")
     df = generate_demo_dataset(n_patients=500, seed=42)
 
-    print("\nDataset preview:")
-    print(df.head())
-    print("\nDisease stage distribution:")
-    print(df["stage"].value_counts().sort_index())
-    print("\nTreatment summary:")
-    print(df["treatment_flag"].value_counts(normalize=True))
-    print("\nMedicine type summary:")
-    print(df["medicine_type"].value_counts(normalize=True))
-    print("\nMissing values:")
-    print(df.isna().sum())
+    train_df, valid_df = split_by_patient(df, valid_fraction=0.2, seed=42)
 
-    patient_ids = sorted(df["patient_id"].unique())
-    rng = np.random.default_rng(42)
-    rng.shuffle(patient_ids)
+    clinical_stats = compute_group_stats(train_df, ALL_CLINICAL_COLS)
+    wearable_stats = compute_group_stats(train_df, WEARABLE_COLS)
+    imaging_stats = compute_group_stats(train_df, IMAGING_COLS)
 
-    split_idx = int(0.8 * len(patient_ids))
-    train_ids = set(patient_ids[:split_idx])
-    valid_ids = set(patient_ids[split_idx:])
+    train_df = apply_standardization(train_df.copy(), clinical_stats)
+    valid_df = apply_standardization(valid_df.copy(), clinical_stats)
 
-    train_df = df[df["patient_id"].isin(train_ids)].copy()
-    valid_df = df[df["patient_id"].isin(valid_ids)].copy()
+    train_df = apply_standardization(train_df, wearable_stats)
+    valid_df = apply_standardization(valid_df, wearable_stats)
 
-    print(f"\nTrain patients: {len(train_ids)}")
-    print(f"Validation patients: {len(valid_ids)}")
+    train_df = apply_standardization(train_df, imaging_stats)
+    valid_df = apply_standardization(valid_df, imaging_stats)
 
     train_sequences = make_patient_sequences(train_df)
     valid_sequences = make_patient_sequences(valid_df)
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+
     print("\nTraining multimodal progression model...")
-    model = train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3)
+    train_model(train_sequences, valid_sequences, epochs=30, batch_size=16, lr=1e-3, device=device)
 
     print("\nModel training complete.")
-    print("Prototype includes treatment and medicine type as time-varying clinical covariates.")
-    print("This is a realistic baseline for disease progression modelling under treatment exposure.")
-
+    print("This is a synthetic treatment-aware progression baseline for methodological development.")
 
 if __name__ == "__main__":
     main()

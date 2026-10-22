@@ -2,7 +2,7 @@
 
 A synthetic, reproducible prototype for modelling disease progression from multimodal health data, including clinical records, wearable time-series measurements, imaging-derived features, and time-varying treatment information.
 
-This repository is designed as a research prototype and PhD-style demo project. It demonstrates a realistic workflow for longitudinal disease modelling under irregular visit schedules, missing data, and evolving treatment exposure, which are common challenges in real-world clinical datasets.
+This repository is designed as a research prototype and PhD-style demo project. It demonstrates a synthetic setting that reflects common challenges in longitudinal clinical data, including irregular visit schedules, missing data, and evolving treatment exposure.
 
 ## Motivation
 
@@ -65,6 +65,7 @@ Although simple, this design reflects a realistic methodological foundation for 
 - `requirements.txt` — Python dependencies
 - `docs/README.md` — short project documentation
 - `README.md` — project overview and usage instructions
+- `PROJECT_SUMMARY.md` — concise project summary
 
 ## Requirements
 
