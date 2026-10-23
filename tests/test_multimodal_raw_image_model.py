@@ -91,7 +91,7 @@ class RawImageTemporalFusionTests(unittest.TestCase):
         self.assertIn("M_medicine_name__unknown", columns)
         self.assertEqual(encoded.loc[2, "C_sex__unknown"], 1.0)
         self.assertEqual(encoded.loc[2, "M_medicine_name__unknown"], 1.0)
-        self.assertTrue(pd.isna(encoded.loc[0, "C_sex__unknown"]) is False)
+        self.assertEqual(encoded.loc[0, "C_sex__unknown"], 0.0)
 
     def test_end_to_end_fusion_training_smoke_test(self):
         with tempfile.TemporaryDirectory() as directory:
