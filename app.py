@@ -166,7 +166,7 @@ elif mode == "Run trained model":
                             else:
                                 feature_values[field] = st.text_input(
                                     f"{field} (number; leave blank if unavailable)",
-                                    key=f"guided_{field}",
+                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
                                     help="Use the same units and definitions as the training data. Do not guess missing values."
                                 )
             add_visit = st.form_submit_button("Add this visit to the review table")
@@ -252,6 +252,7 @@ elif mode == "Run trained model":
                     st.success("Files prepared. Download them for your records, or use them directly below for inference.")
         with col_clear:
             if st.button("Clear all entered visits"):
+                st.session_state.guided_form_version += 1
                 st.session_state.guided_visits = []
                 st.session_state.guided_manifest_bytes = None
                 st.session_state.guided_zip_bytes = None
