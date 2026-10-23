@@ -39,13 +39,13 @@ This makes the dataset suitable as a proof-of-concept benchmark for disease prog
 The current prototype explicitly includes treatment variables, including:
 
 - treatment flag
+- time since treatment started
+- treatment duration in days
+- treatment change indicator
 - medicine type
 - dose per day
 - frequency per day
-- time since treatment started
-- treatment duration in days
 - cumulative exposure
-- treatment change indicator
 
 These are treated as time-varying clinical covariates that can influence disease trajectory. This makes the synthetic benchmark more realistic than a model that only includes imaging, wearables, and generic clinical variables.
 
@@ -53,12 +53,12 @@ These are treated as time-varying clinical covariates that can influence disease
 
 The demo implements a multimodal temporal model with the following structure:
 
-1. Modality-specific encoders for clinical, wearable, and imaging inputs
-2. Inclusion of a treatment-aware clinical stream
-3. Fusion of modality embeddings into a shared latent representation
-4. Temporal modelling through an LSTM sequence model
-5. Prediction of disease stage at each visit
-6. Robustness to missing values through modality masks
+1. modality-specific encoders for clinical, treatment, medicine, wearable, and imaging inputs
+2. separate treatment and medicine streams to preserve treatment-specific structure
+3. multimodal fusion into a shared latent representation
+4. a Transformer encoder for temporal modelling
+5. a stage-classification head
+6. robustness to missing values through modality masks
 
 Although simple, this design reflects a realistic methodological foundation for longitudinal multimodal health modelling.
 
@@ -115,7 +115,7 @@ This script will:
 - generate a synthetic multimodal dataset with treatment and medicine exposure history
 - simulate irregular visits and missingness
 - build patient-level sequences
-- train the disease progression model
+- train the treatment-aware Transformer model
 - print training and validation metrics
 
 ## Example output
@@ -143,8 +143,8 @@ This prototype is useful for:
 
 This demo can be extended in several ways:
 
-- replace LSTM with a temporal Transformer
-- use cross-attention fusion across modalities and treatment streams
+- replace the current sequence model with a more expressive temporal Transformer architecture
+- use cross-attention between treatment, medicine, and other modalities
 - add time-to-event prediction for progression risk
 - model treatment effects explicitly through causal or counterfactual approaches
 - incorporate uncertainty estimation and calibration analysis

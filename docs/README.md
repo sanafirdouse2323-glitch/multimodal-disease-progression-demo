@@ -17,13 +17,13 @@ The prototype simulates a realistic health-data setting in which patient traject
 At each visit, the model predicts the patient’s disease stage. Treatment variables include:
 
 - treatment flag
+- time since treatment started
+- treatment duration in days
+- treatment change indicator
 - medicine type
 - dose per day
 - frequency per day
-- time since treatment started
-- treatment duration in days
 - cumulative exposure
-- treatment change indicator
 
 This makes the dataset more clinically realistic than a model that ignores treatment effects.
 
@@ -35,10 +35,10 @@ The synthetic dataset includes patient trajectories spanning multiple irregular 
 
 The model uses:
 
-1. modality-specific encoders for clinical, wearable, and imaging data
-2. a treatment-aware clinical stream
+1. modality-specific encoders for clinical, treatment, medicine, wearable, and imaging data
+2. separate treatment and medicine streams
 3. multimodal fusion into a shared latent representation
-4. an LSTM to model longitudinal disease dynamics
+4. a Transformer encoder to model longitudinal disease dynamics
 5. a stage-classification head
 
 The design is intentionally compact but realistic enough to support a PhD demo or research prototype.
