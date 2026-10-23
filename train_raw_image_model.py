@@ -65,6 +65,22 @@ def normalize_volume(
     return ((arr - mean) / std).astype(np.float32)
 
 
+def fit_volume_to_cube(volume: np.ndarray, image_size: int) -> np.ndarray:
+    """Center-crop/pad a normalized Z,Y,X array without stretching anatomy."""
+    if image_size < 1:
+        raise ValueError("image_size must be positive.")
+    result = np.zeros((image_size, image_size, image_size), dtype=np.float32)
+    src_slices, dst_slices = [], []
+    for src_size in volume.shape:
+        keep = min(int(src_size), image_size)
+        src_start = max(0, (int(src_size) - keep) // 2)
+        dst_start = max(0, (image_size - keep) // 2)
+        src_slices.append(slice(src_start, src_start + keep))
+        dst_slices.append(slice(dst_start, dst_start + keep))
+    result[tuple(dst_slices)] = volume[tuple(src_slices)]
+    return result
+
+
 def volume_to_tensor(
     volume: np.ndarray,
     image_size: int = 64,
@@ -72,16 +88,14 @@ def volume_to_tensor(
     ct_window_low: float = -1000.0,
     ct_window_high: float = 1000.0,
 ) -> torch.Tensor:
-    """Convert a Z,Y,X array into a normalized [1,Z,Y,X] tensor of fixed size."""
+    """Convert a Z,Y,X array to [1,Z,Y,X] without anisotropic resizing."""
     arr = normalize_volume(volume, modality, ct_window_low, ct_window_high)
-    tensor = torch.from_numpy(arr)[None, None, ...]
-    tensor = F.interpolate(tensor, size=(image_size, image_size, image_size),
-                           mode="trilinear", align_corners=False)
-    return tensor[0].contiguous()
+    arr = fit_volume_to_cube(arr, image_size)
+    return torch.from_numpy(arr.copy())[None, ...].contiguous()
 
 
-def read_medical_volume(path: str) -> np.ndarray:
-    """Read a NIfTI file or a directory containing one DICOM series via SimpleITK."""
+def read_medical_volume(path: str, target_spacing_mm: float | None = None) -> np.ndarray:
+    """Read a NIfTI/DICOM 3D image; optionally orient to LPS and resample in physical space."""
     try:
         import SimpleITK as sitk
     except ImportError as exc:
@@ -108,6 +122,26 @@ def read_medical_volume(path: str) -> np.ndarray:
         image = reader.Execute()
     else:
         image = sitk.ReadImage(str(image_path))
+    if image.GetDimension() != 3:
+        raise ValueError(f"Expected a 3D image; got {image.GetDimension()} dimensions from {image_path}")
+    if target_spacing_mm is not None:
+        if not np.isfinite(target_spacing_mm) or target_spacing_mm <= 0:
+            raise ValueError("target_spacing_mm must be a finite positive number.")
+        # Normalize orientation before resampling so array axes have consistent physical meaning.
+        image = sitk.DICOMOrient(image, "LPS")
+        old_size = np.asarray(image.GetSize(), dtype=np.float64)
+        old_spacing = np.asarray(image.GetSpacing(), dtype=np.float64)
+        new_spacing = np.full(3, float(target_spacing_mm), dtype=np.float64)
+        new_size = np.maximum(1, np.rint(old_size * old_spacing / new_spacing).astype(int))
+        center_index = tuple((old_size - 1.0) / 2.0)
+        center_physical = np.asarray(image.TransformContinuousIndexToPhysicalPoint(center_index))
+        direction = np.asarray(image.GetDirection(), dtype=np.float64).reshape(3, 3)
+        origin = center_physical - direction @ (new_spacing * (new_size - 1.0) / 2.0)
+        image = sitk.Resample(
+            image, [int(v) for v in new_size], sitk.Transform(), sitk.sitkLinear,
+            tuple(float(v) for v in origin), tuple(float(v) for v in new_spacing),
+            image.GetDirection(), 0.0, image.GetPixelID()
+        )
     volume = sitk.GetArrayFromImage(image)  # SimpleITK array order: Z,Y,X for 3D
     if volume.ndim != 3:
         raise ValueError(f"Expected a 3D scan; got array shape {volume.shape} from {image_path}")
@@ -118,19 +152,21 @@ class RawVolumeDataset(Dataset):
     def __init__(
         self, frame: pd.DataFrame, image_size: int = 64, modality: str = "generic",
         ct_window_low: float = -1000.0, ct_window_high: float = 1000.0,
+        target_spacing_mm: float = 1.5,
     ):
         self.frame = frame.reset_index(drop=True).copy()
         self.image_size = image_size
         self.modality = modality
         self.ct_window_low = ct_window_low
         self.ct_window_high = ct_window_high
+        self.target_spacing_mm = target_spacing_mm
 
     def __len__(self) -> int:
         return len(self.frame)
 
     def __getitem__(self, index: int):
         row = self.frame.iloc[index]
-        volume = read_medical_volume(str(row["image_path"]))
+        volume = read_medical_volume(str(row["image_path"]), self.target_spacing_mm)
         image = volume_to_tensor(
             volume, self.image_size, self.modality, self.ct_window_low, self.ct_window_high
         )
@@ -236,6 +272,8 @@ def main():
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--image-size", type=int, default=64)
+    parser.add_argument("--target-spacing-mm", type=float, default=1.5,
+                        help="Isotropic physical voxel spacing after LPS orientation/resampling.")
     parser.add_argument("--modality", choices=["generic", "ct", "mri"], default="generic",
                         help="Normalization policy; CT windowing is configurable.")
     parser.add_argument("--ct-window-low", type=float, default=-1000.0,
@@ -247,6 +285,8 @@ def main():
     args = parser.parse_args()
     if args.epochs < 1 or args.batch_size < 1 or args.image_size < 16:
         raise ValueError("epochs/batch-size must be positive and image-size must be >=16.")
+    if not np.isfinite(args.target_spacing_mm) or args.target_spacing_mm <= 0:
+        raise ValueError("target-spacing-mm must be a finite positive number.")
     if args.modality == "ct" and (
         not np.isfinite(args.ct_window_low) or not np.isfinite(args.ct_window_high)
         or args.ct_window_high <= args.ct_window_low
@@ -274,6 +314,7 @@ def main():
     dataset_args = {
         "image_size": args.image_size, "modality": args.modality,
         "ct_window_low": args.ct_window_low, "ct_window_high": args.ct_window_high,
+        "target_spacing_mm": args.target_spacing_mm,
     }
     train_loader = DataLoader(RawVolumeDataset(train_df, **dataset_args), batch_size=args.batch_size,
                               shuffle=True, num_workers=0)
@@ -328,9 +369,12 @@ def main():
         "preprocessing": {
             "modality": args.modality,
             "image_size_voxels": args.image_size,
+            "target_spacing_mm": args.target_spacing_mm,
+            "orientation": "LPS before physical-space resampling",
+            "cube_policy": "center crop/pad after normalization; no anisotropic stretching",
             "ct_window_low": args.ct_window_low if args.modality == "ct" else None,
             "ct_window_high": args.ct_window_high if args.modality == "ct" else None,
-            "note": "Array is resized to a fixed cube without physical-space resampling; validate spacing/orientation handling for the intended dataset."
+            "note": "Images are reoriented to LPS and resampled to target_spacing_mm; fixed-size inputs are center-cropped/padded, which may crop anatomy. Validate field of view for the intended dataset."
         },
         "n_scans": len(frame), "n_patients": int(frame.patient_id.nunique()),
         "split_patients": {
@@ -345,7 +389,7 @@ def main():
             "This is research starter code, not a clinical tool.",
             "All labels must be supplied and verified by the dataset owner; this script does not create labels.",
             "Preprocessing is a configurable research starter, not a validated protocol. CT window bounds must be selected for the anatomy/task; MRI intensity handling is per-volume percentile clipping.",
-            "Resizing 3D scans to a fixed cube may discard spatial detail and is not a validated medical preprocessing protocol.",
+            "Center crop/padding to a fixed cube can crop anatomy or add background; target spacing and field of view must be selected for the anatomy/task.",
             "Results are meaningful only if dataset labels, acquisition protocols, and patient-level splits are appropriate.",
             "This standalone raw-image CNN currently uses images and labels only; it is not yet fused with the existing clinical/wearable/treatment temporal model."
         ],
