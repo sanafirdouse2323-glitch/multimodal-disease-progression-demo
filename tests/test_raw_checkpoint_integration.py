@@ -190,8 +190,12 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
                     page.get_by_text("P000_v0.nii.gz", exact=True).wait_for(timeout=20_000)
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
-                    page.get_by_text("Medicine features", exact=True).click()
-                    textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
+                    medicine_label = "M_medicine_name (category/text; leave blank if unavailable)"
+                    medicine_box = textbox(medicine_label)
+                    if not medicine_box.is_visible():
+                        page.get_by_text("Medicine features", exact=True).click()
+                        medicine_box.wait_for(state="visible")
+                    medicine_box.fill("MedicineA")
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     wait_for_ui_text("1 visit(s) now in the review table.")
 
@@ -202,8 +206,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
                     page.get_by_text("P000_v1.nii.gz", exact=True).wait_for(timeout=20_000)
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
-                    page.get_by_text("Medicine features", exact=True).click()
-                    medicine_box = textbox("M_medicine_name (category/text; leave blank if unavailable)")
+                    medicine_box = textbox(medicine_label)
+                    if not medicine_box.is_visible():
+                        page.get_by_text("Medicine features", exact=True).click()
+                        medicine_box.wait_for(state="visible")
                     medicine_box.fill("PreviouslyUnseenCategory")
                     self.assertEqual(
                         textbox("Pseudonymous patient ID (same ID for the same person across visits)").input_value(),
