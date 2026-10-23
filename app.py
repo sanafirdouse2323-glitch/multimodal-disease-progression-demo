@@ -117,6 +117,8 @@ elif mode == "Run trained model":
 
     if "guided_visits" not in st.session_state:
         st.session_state.guided_visits = []
+    if "guided_form_version" not in st.session_state:
+        st.session_state.guided_form_version = 0
     if "guided_manifest_bytes" not in st.session_state:
         st.session_state.guided_manifest_bytes = None
     if "guided_zip_bytes" not in st.session_state:
@@ -125,14 +127,14 @@ elif mode == "Run trained model":
     st.markdown("### Guided entry: add one scan visit at a time")
     st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
     if checkpoint_metadata is not None:
-        with st.form("guided_visit_form", clear_on_submit=True):
+        with st.form(f"guided_visit_form_{st.session_state.guided_form_version}", clear_on_submit=False):
             patient_id_input = st.text_input("Pseudonymous patient ID (same ID for the same person across visits)", placeholder="P001")
             col_visit, col_months = st.columns(2)
             with col_visit:
                 visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
             with col_months:
                 time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
-            scan_upload = st.file_uploader("Scan for this visit", type=None, key="guided_scan_upload")
+            scan_upload = st.file_uploader("Scan for this visit", type=None, key=f"guided_scan_upload_{st.session_state.guided_form_version}")
             st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
             grouped_fields = {
                 "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
@@ -148,7 +150,7 @@ elif mode == "Run trained model":
                             if field in categorical_fields:
                                 feature_values[field] = st.text_input(
                                     f"{field} (category/text; leave blank if unavailable)",
-                                    key=f"guided_{field}",
+                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
                                     help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
                                 )
                             else:
@@ -196,6 +198,7 @@ elif mode == "Run trained model":
                     st.error("Enter numeric values or leave blank for: " + ", ".join(invalid))
                 else:
                     st.session_state.guided_visits.append(row)
+                    st.session_state.guided_form_version += 1
                     st.session_state.guided_manifest_bytes = None
                     st.session_state.guided_zip_bytes = None
                     st.success("Visit added. Review the table below; add another visit if needed.")
