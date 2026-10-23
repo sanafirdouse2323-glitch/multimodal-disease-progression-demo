@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import subprocess
 import shutil
 import sys
@@ -16,6 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 import streamlit as st
+import torch
 
 st.set_page_config(page_title="Multimodal Disease-Progression Demo", page_icon="🧠", layout="wide")
 
@@ -86,6 +88,161 @@ elif mode == "Run trained model":
         "and a ZIP archive containing the scans at the relative paths referenced by that CSV."
     )
 
+    checkpoint_file = st.file_uploader("Model checkpoint (.pt)", type=["pt"], key="guided_checkpoint")
+    checkpoint_metadata = None
+    raw_feature_fields = []
+    categorical_fields = {}
+    if checkpoint_file is not None:
+        try:
+            # Read only tensor/primitive checkpoint data; do not execute arbitrary pickle objects.
+            checkpoint_metadata = torch.load(
+                io.BytesIO(checkpoint_file.getvalue()), map_location="cpu", weights_only=True
+            )
+            if checkpoint_metadata.get("architecture") != "RawImageTemporalFusionModel":
+                st.error("This checkpoint is not for the repository's RawImageTemporalFusionModel.")
+                checkpoint_metadata = None
+            else:
+                schema = checkpoint_metadata.get("feature_schema")
+                if schema:
+                    raw_feature_fields = list(schema.get("numeric_columns", []))
+                    categorical_fields = schema.get("categorical_categories", {})
+                    raw_feature_fields += list(categorical_fields.keys())
+                else:
+                    raw_feature_fields = list(checkpoint_metadata.get("feature_columns", []))
+                    st.info("This is an older checkpoint without raw categorical schema metadata. The guided form can only expose its stored feature columns; if these are encoded category columns, use the CSV upload route and the original training schema.")
+                st.success(f"Checkpoint recognised. {len(raw_feature_fields)} raw feature field(s) available for the guided form.")
+        except Exception as exc:
+            st.error(f"Could not read checkpoint metadata safely: {type(exc).__name__}: {exc}")
+            checkpoint_metadata = None
+
+    if "guided_visits" not in st.session_state:
+        st.session_state.guided_visits = []
+    if "guided_manifest_bytes" not in st.session_state:
+        st.session_state.guided_manifest_bytes = None
+    if "guided_zip_bytes" not in st.session_state:
+        st.session_state.guided_zip_bytes = None
+
+    st.markdown("### Guided entry: add one scan visit at a time")
+    st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
+    if checkpoint_metadata is not None:
+        with st.form("guided_visit_form", clear_on_submit=True):
+            patient_id_input = st.text_input("Pseudonymous patient ID (same ID for the same person across visits)", placeholder="P001")
+            col_visit, col_months = st.columns(2)
+            with col_visit:
+                visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
+            with col_months:
+                time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
+            scan_upload = st.file_uploader("Scan for this visit", type=None, key="guided_scan_upload")
+            st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
+            grouped_fields = {
+                "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
+                "Treatment features": [x for x in raw_feature_fields if x.startswith("T_")],
+                "Medicine features": [x for x in raw_feature_fields if x.startswith("M_")],
+                "Wearable features": [x for x in raw_feature_fields if x.startswith("W_")],
+            }
+            feature_values = {}
+            for group_name, fields in grouped_fields.items():
+                if fields:
+                    with st.expander(group_name, expanded=(group_name == "Clinical features")):
+                        for field in fields:
+                            if field in categorical_fields:
+                                feature_values[field] = st.text_input(
+                                    f"{field} (category/text; leave blank if unavailable)",
+                                    key=f"guided_{field}",
+                                    help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
+                                )
+                            else:
+                                feature_values[field] = st.text_input(
+                                    f"{field} (number; leave blank if unavailable)",
+                                    key=f"guided_{field}",
+                                    help="Use the same units and definitions as the training data. Do not guess missing values."
+                                )
+            add_visit = st.form_submit_button("Add this visit to the review table")
+        if add_visit:
+            pid = patient_id_input.strip()
+            if not pid:
+                st.error("Enter a pseudonymous patient ID.")
+            elif scan_upload is None:
+                st.error("Attach the scan for this visit.")
+            elif any(str(v["patient_id"]) == pid and int(v["visit_idx"]) == int(visit_idx_input) for v in st.session_state.guided_visits):
+                st.error("That patient already has this visit index. Choose a different visit index or remove the existing row.")
+            else:
+                safe_pid = re.sub(r"[^A-Za-z0-9_-]+", "_", pid).strip("_") or "patient"
+                original_name = Path(scan_upload.name).name
+                safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name) or "scan.bin"
+                archive_path = f"scans/{safe_pid}/visit{int(visit_idx_input)}_{safe_name}"
+                row = {
+                    "patient_id": pid, "image_path": archive_path,
+                    "visit_idx": int(visit_idx_input), "time_months": float(time_months_input),
+                    "_scan_name": archive_path, "_scan_bytes": scan_upload.getvalue(),
+                }
+                numeric_fields = set((checkpoint_metadata.get("feature_schema") or {}).get("numeric_columns", []))
+                invalid = []
+                for field, raw in feature_values.items():
+                    raw = raw.strip() if isinstance(raw, str) else raw
+                    if raw == "":
+                        row[field] = ""
+                    elif field in numeric_fields:
+                        try:
+                            number = float(raw)
+                            if not pd.notna(number) or number in (float("inf"), float("-inf")):
+                                raise ValueError
+                            row[field] = number
+                        except (ValueError, TypeError):
+                            invalid.append(field)
+                    else:
+                        row[field] = raw
+                if invalid:
+                    st.error("Enter numeric values or leave blank for: " + ", ".join(invalid))
+                else:
+                    st.session_state.guided_visits.append(row)
+                    st.session_state.guided_manifest_bytes = None
+                    st.session_state.guided_zip_bytes = None
+                    st.success("Visit added. Review the table below; add another visit if needed.")
+    if st.session_state.guided_visits:
+        st.markdown("#### Review entered visits")
+        display_rows = [{k: v for k, v in row.items() if not k.startswith("_scan_")} for row in st.session_state.guided_visits]
+        st.dataframe(pd.DataFrame(display_rows), use_container_width=True)
+        st.caption("Check patient IDs, visit order, elapsed months, feature values, and scan paths before preparing the files.")
+        col_prepare, col_clear = st.columns(2)
+        with col_prepare:
+            if st.button("Validate and prepare manifest + scan ZIP", type="primary"):
+                rows = sorted(st.session_state.guided_visits, key=lambda x: (str(x["patient_id"]), int(x["visit_idx"])))
+                errors = []
+                seen = set()
+                for row in rows:
+                    key = (str(row["patient_id"]), int(row["visit_idx"]))
+                    if key in seen:
+                        errors.append(f"Duplicate visit index {key[1]} for patient {key[0]}.")
+                    seen.add(key)
+                    if not str(row["image_path"]).strip():
+                        errors.append(f"Missing scan path for patient {key[0]}, visit {key[1]}.")
+                if errors:
+                    for err in errors:
+                        st.error(err)
+                else:
+                    public_rows = [{k: v for k, v in row.items() if not k.startswith("_scan_")} for row in rows]
+                    manifest_buffer = io.StringIO()
+                    pd.DataFrame(public_rows).to_csv(manifest_buffer, index=False)
+                    zip_buffer = io.BytesIO()
+                    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                        for row in rows:
+                            archive.writestr(row["_scan_name"], row["_scan_bytes"])
+                    st.session_state.guided_manifest_bytes = manifest_buffer.getvalue().encode("utf-8")
+                    st.session_state.guided_zip_bytes = zip_buffer.getvalue()
+                    st.success("Files prepared. Download them for your records, or use them directly below for inference.")
+        with col_clear:
+            if st.button("Clear all entered visits"):
+                st.session_state.guided_visits = []
+                st.session_state.guided_manifest_bytes = None
+                st.session_state.guided_zip_bytes = None
+                st.rerun()
+        if st.session_state.guided_manifest_bytes and st.session_state.guided_zip_bytes:
+            st.download_button("Download prepared manifest CSV", st.session_state.guided_manifest_bytes, "prediction_manifest.csv", "text/csv")
+            st.download_button("Download prepared scan ZIP", st.session_state.guided_zip_bytes, "prediction_scans.zip", "application/zip")
+    else:
+        st.info("No visits entered yet. Add at least one visit above to start building the manifest.")
+
     # Beginner-friendly manifest builder: the example row is a template, not real patient data.
     st.markdown("### New to CSV files? Start here")
     st.write(
@@ -135,17 +292,28 @@ elif mode == "Run trained model":
         ]), use_container_width=True)
         st.caption("Illustrative rows only. Replace all example IDs, paths, and values with authorised data. The scan paths must exist inside your ZIP.")
 
-    checkpoint_file = st.file_uploader("Model checkpoint (.pt)", type=["pt"])
-    manifest_file = st.file_uploader("Prediction manifest (.csv)", type=["csv"])
-    scans_zip = st.file_uploader("Scan files archive (.zip)", type=["zip"])
+    use_guided_files = bool(st.session_state.get("guided_manifest_bytes") and st.session_state.get("guided_zip_bytes"))
+    if use_guided_files:
+        input_choice = st.radio("Input source", ["Use guided entries above", "Upload an existing CSV and ZIP"], horizontal=True)
+    else:
+        input_choice = "Upload an existing CSV and ZIP"
+    if input_choice == "Upload an existing CSV and ZIP":
+        manifest_file = st.file_uploader("Prediction manifest (.csv)", type=["csv"], key="manual_manifest")
+        scans_zip = st.file_uploader("Scan files archive (.zip)", type=["zip"], key="manual_scans_zip")
+        manifest_bytes = manifest_file.getvalue() if manifest_file else None
+        zip_bytes = scans_zip.getvalue() if scans_zip else None
+    else:
+        manifest_bytes = st.session_state.guided_manifest_bytes
+        zip_bytes = st.session_state.guided_zip_bytes
+        st.success("Prepared manifest and scan archive selected from the guided form.")
     st.caption(
         "Manifest requires patient_id, image_path, and visit_idx. Include the same feature columns "
         "used during training where available. Archive paths must match image_path values relative to the manifest."
     )
 
-    if st.button("Run prediction", type="primary", disabled=not (checkpoint_file and manifest_file and scans_zip)):
+    if st.button("Run prediction", type="primary", disabled=not (checkpoint_file and manifest_bytes and zip_bytes)):
         try:
-            manifest_preview = pd.read_csv(manifest_file)
+            manifest_preview = pd.read_csv(io.BytesIO(manifest_bytes))
             required = {"patient_id", "image_path", "visit_idx"}
             missing = required - set(manifest_preview.columns)
             if missing:
@@ -161,10 +329,10 @@ elif mode == "Run trained model":
                 manifest_path = work / "prediction_manifest.csv"
                 output_path = work / "predictions.csv"
                 checkpoint_path.write_bytes(checkpoint_file.getvalue())
-                manifest_path.write_bytes(manifest_file.getvalue())
+                manifest_path.write_bytes(manifest_bytes)
 
                 # Extract only regular files and reject paths that escape the workspace.
-                with zipfile.ZipFile(io.BytesIO(scans_zip.getvalue())) as archive:
+                with zipfile.ZipFile(io.BytesIO(zip_bytes)) as archive:
                     members = archive.infolist()
                     if len(members) > 5000:
                         st.error("Archive contains too many entries (limit: 5,000).")
