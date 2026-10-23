@@ -2,7 +2,7 @@ name: Demo checks
 
 on:
   push:
-    branches: ["main", "demo-quality-fixes"]
+    branches: ["main", "demo-quality-fixes", "raw-medical-image-input"]
   pull_request:
     branches: ["main"]
 
