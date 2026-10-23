@@ -171,7 +171,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
+                    page.get_by_text("1 visit(s) now in the review table.", exact=False).wait_for(timeout=20_000)
 
                     # Follow-up visit. The app re-renders the form with a new key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
@@ -182,10 +182,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
+                    page.get_by_text("2 visit(s) now in the review table.", exact=False).wait_for(timeout=20_000)
 
                     page.get_by_role("button", name="Validate and prepare manifest + scan ZIP").click()
-                    page.get_by_text("Files prepared.", exact=False).wait_for(timeout=20_000)
+                    page.get_by_text("Files prepared for 2 visit(s).", exact=False).wait_for(timeout=20_000)
                     page.get_by_role("button", name="Download prepared manifest CSV").wait_for()
                     page.get_by_role("button", name="Download prepared scan ZIP").wait_for()
 
