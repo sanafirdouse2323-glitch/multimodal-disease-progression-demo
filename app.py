@@ -134,7 +134,7 @@ elif mode == "Run trained model":
                 visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
             with col_months:
                 time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
-            scan_upload = st.file_uploader("Scan for this visit", type=None, key=f"guided_scan_upload_{st.session_state.guided_form_version}")
+            scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "mhd", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
             st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
             grouped_fields = {
                 "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
@@ -172,7 +172,7 @@ elif mode == "Run trained model":
                 safe_pid = re.sub(r"[^A-Za-z0-9_-]+", "_", pid).strip("_") or "patient"
                 original_name = Path(scan_upload.name).name
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name) or "scan.bin"
-                archive_path = f"scans/{safe_pid}/visit{int(visit_idx_input)}_{safe_name}"
+                archive_path = f"scans/entry{len(st.session_state.guided_visits) + 1:04d}_{safe_pid}_visit{int(visit_idx_input)}_{safe_name}"
                 row = {
                     "patient_id": pid, "image_path": archive_path,
                     "visit_idx": int(visit_idx_input), "time_months": float(time_months_input),
