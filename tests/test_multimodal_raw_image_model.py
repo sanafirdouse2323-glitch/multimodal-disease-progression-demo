@@ -13,7 +13,7 @@ import torch
 
 from train_multimodal_raw_image_model import (
     RawImageTemporalFusionModel, collate_sequences, main, make_sequences,
-    fit_feature_stats, validate_manifest,
+    fit_feature_stats, validate_manifest, fit_feature_schema, encode_feature_frame,
 )
 from predict_multimodal_raw_image_model import main as predict_main
 
@@ -72,6 +72,27 @@ class RawImageTemporalFusionTests(unittest.TestCase):
                 {"C_hemoglobin", "W_steps", "T_duration_days", "M_dose_mg"},
             )
 
+    def test_categorical_text_is_encoded_and_unseen_values_are_handled(self):
+        frame = pd.DataFrame({
+            "patient_id": ["P1", "P2", "P3"],
+            "image_path": ["a", "b", "c"],
+            "stage": [0, 1, 2],
+            "visit_idx": [0, 0, 0],
+            "time_months": [0.0, 0.0, 0.0],
+            "C_age": [45, 51, 63],
+            "C_sex": ["Female", "male", "Other"],
+            "M_medicine_name": ["Metformin", "Insulin", "NewMedicine"],
+        })
+        schema = fit_feature_schema(frame.iloc[:2], ["C_age", "C_sex", "M_medicine_name"])
+        encoded, columns = encode_feature_frame(frame, schema)
+        self.assertIn("C_age", columns)
+        self.assertIn("C_sex__category_0", columns)
+        self.assertIn("C_sex__unknown", columns)
+        self.assertIn("M_medicine_name__unknown", columns)
+        self.assertEqual(encoded.loc[2, "C_sex__unknown"], 1.0)
+        self.assertEqual(encoded.loc[2, "M_medicine_name__unknown"], 1.0)
+        self.assertTrue(pd.isna(encoded.loc[0, "C_sex__unknown"]) is False)
+
     def test_end_to_end_fusion_training_smoke_test(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -85,6 +106,8 @@ class RawImageTemporalFusionTests(unittest.TestCase):
                     "patient_id": f"P{i:02d}", "image_path": path.name, "stage": i % 4,
                     "visit_idx": 0, "time_months": 0.0, "lab1": float(i),
                     "steps": float(8000 - i * 100),
+                    "C_sex": "Female" if i % 2 == 0 else "Male",
+                    "M_medicine_name": "Metformin" if i % 3 else "Insulin",
                 })
             manifest = root / "manifest.csv"
             pd.DataFrame(rows).to_csv(manifest, index=False)
@@ -101,6 +124,8 @@ class RawImageTemporalFusionTests(unittest.TestCase):
             self.assertEqual(checkpoint["architecture"], "RawImageTemporalFusionModel")
             self.assertIn("lab1", checkpoint["feature_columns"])
             self.assertIn("steps", checkpoint["feature_columns"])
+            self.assertIn("C_sex", checkpoint["feature_schema"]["categorical_categories"])
+            self.assertIn("M_medicine_name", checkpoint["feature_schema"]["categorical_categories"])
             self.assertEqual(summary["n_scans"], 10)
             self.assertEqual(summary["n_patients"], 10)
             self.assertIn("macro_f1", summary["test_metrics"])
