@@ -132,7 +132,11 @@ class RawImageTemporalFusionTests(unittest.TestCase):
             self.assertTrue((output / "training_history.csv").is_file())
 
             prediction_manifest = root / "prediction_manifest.csv"
-            pd.DataFrame(rows).drop(columns=["stage"]).to_csv(prediction_manifest, index=False)
+            prediction_rows = pd.DataFrame(rows).drop(columns=["stage"])
+            # Exercise inference-time handling of a category absent from training and a missing value.
+            prediction_rows.loc[0, "M_medicine_name"] = "PreviouslyUnseenMedicine"
+            prediction_rows.loc[1, "C_sex"] = np.nan
+            prediction_rows.to_csv(prediction_manifest, index=False)
             prediction_path = root / "predictions.csv"
             predict_argv = [
                 "predict_multimodal_raw_image_model.py",
