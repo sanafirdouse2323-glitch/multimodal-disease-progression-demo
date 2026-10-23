@@ -222,6 +222,8 @@ elif mode == "Run trained model":
                         f"Visit added. {len(st.session_state.guided_visits)} visit(s) now in the review table."
                     )
     if st.session_state.guided_visits:
+        # Keep the current count visible across reruns; success notices are transient UI feedback.
+        st.caption(f"Visits in review table: {len(st.session_state.guided_visits)}")
         st.markdown("#### Review entered visits")
         display_rows = [{k: v for k, v in row.items() if not k.startswith("_scan_")} for row in st.session_state.guided_visits]
         st.dataframe(pd.DataFrame(display_rows), use_container_width=True)
