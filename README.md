@@ -93,6 +93,12 @@ python -m unittest discover -s tests -v
 - The current task is stage classification, not survival analysis or future progression forecasting.
 - A single seeded run is for demonstration; stronger evaluation would require repeated seeds and real datasets with appropriate access, governance, and outcome definitions.
 
+## Direct raw CT/MRI image input (research starter)
+
+An optional 3D CNN starter can read raw 3D NIfTI scans (`.nii`, `.nii.gz`) or a directory containing one DICOM series, instead of requiring hand-crafted imaging feature columns. It requires a manifest containing verified `patient_id`, `image_path`, and integer `stage` labels (0–3). It predicts the supplied label from each scan; it does not generate labels and it is not clinically validated.
+
+See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the manifest format, Colab/local run instructions, data privacy notes, and important limitations. The raw-image CNN is currently a separate image-only baseline; fusion with the existing clinical/wearable/treatment temporal Transformer remains future work.
+
 ## License
 
 No open-source license has been selected yet. Until one is added, do not assume the repository is licensed for reuse beyond rights granted by applicable law.
