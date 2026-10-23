@@ -210,10 +210,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         "1",
                         "Follow-up visit index was not retained in the browser control.",
                     )
-                    self.assertEqual(
-                        spinbutton("Months since baseline (baseline = 0)").input_value(),
-                        "6.0",
-                        "Follow-up month value was not retained in the browser control.",
+                    self.assertAlmostEqual(
+                        float(spinbutton("Months since baseline (baseline = 0)").input_value()),
+                        6.0,
+                        msg="Follow-up month value was not retained in the browser control.",
                     )
                     scan_files = uploader_input(
                         "Scan for this visit (3D image file, e.g. .nii or .nii.gz)"
