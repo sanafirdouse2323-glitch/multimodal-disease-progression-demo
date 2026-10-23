@@ -85,6 +85,56 @@ elif mode == "Run trained model":
         "Upload a checkpoint produced by `train_multimodal_raw_image_model.py`, a CSV manifest, "
         "and a ZIP archive containing the scans at the relative paths referenced by that CSV."
     )
+
+    # Beginner-friendly manifest builder: the example row is a template, not real patient data.
+    st.markdown("### New to CSV files? Start here")
+    st.write(
+        "A manifest is a spreadsheet saved as CSV: **one row per patient visit and scan**. "
+        "You do not need to enter every possible feature. Start with the required columns, "
+        "then fill in the feature columns your trained model expects. Leave genuinely unavailable "
+        "feature values blank rather than guessing."
+    )
+    template_columns = [
+        "patient_id", "image_path", "visit_idx", "time_months",
+        "C_age", "C_sex", "C_bmi", "C_hemoglobin", "C_comorbidities_count",
+        "T_treatment_flag", "T_treatment_duration_days", "T_treatment_change",
+        "M_medicine_name", "M_dose_per_day", "M_frequency_per_day", "M_cumulative_exposure",
+        "W_steps", "W_sleep_hours", "W_heart_rate", "W_hrv", "W_activity",
+    ]
+    template_row = {
+        "patient_id": "REPLACE_WITH_PSEUDONYMOUS_ID",
+        "image_path": "scans/REPLACE_WITH_ID/visit0.nii.gz",
+        "visit_idx": 0,
+        "time_months": 0,
+    }
+    template_df = pd.DataFrame([{col: template_row.get(col, "") for col in template_columns}])
+    st.download_button(
+        "Download example CSV template",
+        data=template_df.to_csv(index=False).encode("utf-8"),
+        file_name="prediction_manifest_template.csv",
+        mime="text/csv",
+        help="Open this file in Excel or LibreOffice, replace the example values, then save as CSV.",
+    )
+    with st.expander("What goes in each column?"):
+        st.markdown("""
+        - **patient_id** — a pseudonymous ID, reused for all visits belonging to the same person. Do not use names.
+        - **image_path** — path to that visit's scan *inside the ZIP*, for example `scans/P001/visit0.nii.gz`.
+        - **visit_idx** — visit order for each patient: baseline = 0, next visit = 1, next = 2. Do not use a calendar date here.
+        - **time_months** — months elapsed since that patient's baseline visit (baseline = 0, then e.g. 6 or 12). If omitted, the app uses `visit_idx` as a fallback.
+        - **C_ columns** — clinical data, such as age, sex, BMI, or lab measurements.
+        - **T_ columns** — treatment data, such as treatment duration or treatment changes.
+        - **M_ columns** — medicine data, such as medicine name, dose, or frequency.
+        - **W_ columns** — wearable data, such as steps, sleep, or heart rate.
+        
+        Use one row per visit, not one row per feature group. If a patient has three visits, create three rows with the same `patient_id`, visit indices 0, 1, and 2, and the corresponding scan path in each row. Feature column names must match the model's training schema; this template is an example, not a universal clinical data standard.
+        """)
+    with st.expander("Example: two visits for one patient"):
+        st.dataframe(pd.DataFrame([
+            {"patient_id": "P001", "image_path": "scans/P001/visit0.nii.gz", "visit_idx": 0, "time_months": 0, "C_age": 45, "C_sex": "Female", "M_medicine_name": "ExampleMedicine"},
+            {"patient_id": "P001", "image_path": "scans/P001/visit1.nii.gz", "visit_idx": 1, "time_months": 6, "C_age": 45, "C_sex": "Female", "M_medicine_name": "ExampleMedicine"},
+        ]), use_container_width=True)
+        st.caption("Illustrative rows only. Replace all example IDs, paths, and values with authorised data. The scan paths must exist inside your ZIP.")
+
     checkpoint_file = st.file_uploader("Model checkpoint (.pt)", type=["pt"])
     manifest_file = st.file_uploader("Prediction manifest (.csv)", type=["csv"])
     scans_zip = st.file_uploader("Scan files archive (.zip)", type=["zip"])
