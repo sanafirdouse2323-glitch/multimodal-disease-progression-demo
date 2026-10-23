@@ -97,10 +97,14 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
             "column from the earlier template. Use train_raw_image_model.py for image-only training."
         )
     for col in feature_cols:
-        frame[col] = pd.to_numeric(frame[col], errors="raise")
-        vals = frame[col].dropna().to_numpy(dtype=float)
-        if not np.isfinite(vals).all():
-            raise ValueError(f"Feature {col!r} contains infinite values.")
+        if pd.api.types.is_object_dtype(frame[col]) or pd.api.types.is_string_dtype(frame[col]):
+            values = frame[col].astype("string").str.strip()
+            frame[col] = values.replace("", pd.NA)
+        else:
+            frame[col] = pd.to_numeric(frame[col], errors="raise")
+            vals = frame[col].dropna().to_numpy(dtype=float)
+            if not np.isfinite(vals).all():
+                raise ValueError(f"Feature {col!r} contains infinite values.")
     def resolve_path(value):
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
@@ -126,6 +130,49 @@ def split_by_patient(frame: pd.DataFrame, seed: int = 42):
     test_ids = set(ids[n_train + n_valid:])
     assert train_ids.isdisjoint(valid_ids) and train_ids.isdisjoint(test_ids) and valid_ids.isdisjoint(test_ids)
     return tuple(frame[frame.patient_id.isin(ids_part)].copy() for ids_part in (train_ids, valid_ids, test_ids))
+
+
+def fit_feature_schema(train_frame: pd.DataFrame, raw_feature_cols: list[str]) -> dict:
+    """Learn categorical vocabularies from training patients only."""
+    numeric_cols, categorical = [], {}
+    for col in raw_feature_cols:
+        if pd.api.types.is_object_dtype(train_frame[col]) or pd.api.types.is_string_dtype(train_frame[col]):
+            values = train_frame[col].dropna().astype(str).str.strip()
+            categorical[col] = sorted(v for v in values.unique().tolist() if v)
+        else:
+            numeric_cols.append(col)
+    return {"numeric_columns": numeric_cols, "categorical_categories": categorical}
+
+
+def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFrame, list[str]]:
+    """Expand categorical text to one-hot columns; retain missingness and unseen-category handling."""
+    encoded = frame[["patient_id", "image_path", "stage", "visit_idx", "time_months"]].copy()
+    feature_cols = []
+    for col in schema["numeric_columns"]:
+        values = pd.to_numeric(frame[col] if col in frame else pd.Series(np.nan, index=frame.index), errors="raise")
+        vals = values.dropna().to_numpy(dtype=float)
+        if not np.isfinite(vals).all():
+            raise ValueError(f"Feature {col!r} contains infinite values.")
+        encoded[col] = values
+        feature_cols.append(col)
+    for col, categories in schema["categorical_categories"].items():
+        raw = frame[col].astype("string").str.strip() if col in frame else pd.Series(pd.NA, index=frame.index, dtype="string")
+        raw = raw.replace("", pd.NA)
+        names = [f"{col}__category_{i}" for i in range(len(categories))]
+        unknown_name = f"{col}__unknown"
+        columns = names + [unknown_name]
+        for name in columns:
+            encoded[name] = np.nan if False else 0.0
+        for row_index, value in raw.items():
+            if pd.isna(value):
+                for name in columns:
+                    encoded.at[row_index, name] = np.nan
+            elif str(value) in categories:
+                encoded.at[row_index, names[categories.index(str(value))]] = 1.0
+            else:
+                encoded.at[row_index, unknown_name] = 1.0
+        feature_cols.extend(columns)
+    return encoded, feature_cols
 
 
 def fit_feature_stats(train_frame: pd.DataFrame, feature_cols: list[str]):
@@ -323,13 +370,18 @@ def main():
     manifest_path = Path(args.manifest).expanduser().resolve()
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-    frame, feature_cols = validate_manifest(pd.read_csv(manifest_path), manifest_path.parent)
+    frame, raw_feature_cols = validate_manifest(pd.read_csv(manifest_path), manifest_path.parent)
     train_df, valid_df, test_df = split_by_patient(frame, args.seed)
-    stats = fit_feature_stats(train_df, feature_cols)
-    sequences = make_sequences(frame, feature_cols, stats)
+    feature_schema = fit_feature_schema(train_df, raw_feature_cols)
+    encoded_frame, feature_cols = encode_feature_frame(frame, feature_schema)
     train_ids, valid_ids, test_ids = (
         set(train_df.patient_id), set(valid_df.patient_id), set(test_df.patient_id)
     )
+    encoded_train = encoded_frame[encoded_frame.patient_id.isin(train_ids)].copy()
+    encoded_valid = encoded_frame[encoded_frame.patient_id.isin(valid_ids)].copy()
+    encoded_test = encoded_frame[encoded_frame.patient_id.isin(test_ids)].copy()
+    stats = fit_feature_stats(encoded_train, feature_cols)
+    sequences = make_sequences(encoded_frame, feature_cols, stats)
     train_seq = [s for s in sequences if s["patient_id"] in train_ids]
     valid_seq = [s for s in sequences if s["patient_id"] in valid_ids]
     test_seq = [s for s in sequences if s["patient_id"] in test_ids]
@@ -387,6 +439,7 @@ def main():
         "n_features": len(feature_cols),
         "feature_columns": feature_cols,
         "feature_stats": stats,
+        "feature_schema": feature_schema,
         "image_size": args.image_size,
         "target_spacing_mm": args.target_spacing_mm,
         "modality": args.modality,
