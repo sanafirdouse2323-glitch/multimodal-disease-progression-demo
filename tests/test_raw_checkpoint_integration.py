@@ -189,7 +189,29 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
 
                     page.get_by_text("Use guided entries above", exact=True).click()
                     page.get_by_role("button", name="Run prediction").click(timeout=10_000)
-                    page.get_by_text("Prediction completed for 2 visit(s).", exact=True).wait_for(timeout=180_000)
+                    # Stop on either a success or a visible application-level error.
+                    # This avoids waiting the full inference timeout when the UI has
+                    # already rendered a useful diagnostic.
+                    page.wait_for_function(
+                        """() => {
+                            const body = document.body.innerText;
+                            return body.includes("Prediction completed for 2 visit(s).")
+                                || body.includes("Prediction failed.")
+                                || body.includes("Could not run inference:")
+                                || body.includes("Some image_path entries do not match files in the ZIP")
+                                || body.includes("Manifest is missing required columns")
+                                || body.includes("The manifest contains no rows.")
+                                || body.includes("Archive contains an unsafe path")
+                                || body.includes("The scan archive is not a valid ZIP file.");
+                        }""",
+                        timeout=180_000,
+                    )
+                    visible_text = page.locator("body").inner_text()
+                    self.assertIn(
+                        "Prediction completed for 2 visit(s).",
+                        visible_text,
+                        msg="Guided Streamlit inference did not complete. Visible UI:\\n" + visible_text[-8000:],
+                    )
                     page.get_by_text("P001", exact=False).wait_for()
                     browser.close()
             finally:
