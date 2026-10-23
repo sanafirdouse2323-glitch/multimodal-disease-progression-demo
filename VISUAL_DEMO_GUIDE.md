@@ -41,6 +41,19 @@ Example for a patient with two visits:
 
 The example identifiers and paths are placeholders. Each referenced scan must exist at the exact relative path inside the ZIP. The same patient should not have duplicate rows for the same `visit_idx`.
 
+## Guided data entry in the app
+
+The **Run trained model** view now includes a guided entry form. Upload the checkpoint first so the form can read its saved feature schema. Then add one visit at a time:
+
+1. Enter a pseudonymous patient ID (reuse it for the same patient across visits).
+2. Set visit order (`visit_idx`: baseline 0, next visit 1, and so on) and months since baseline (`time_months`: baseline 0).
+3. Attach the scan file for that visit. The app generates a relative ZIP path automatically.
+4. Fill in the feature fields shown from the checkpoint's saved schema. Prefixes group fields into clinical (`C_`), treatment (`T_`), medicine (`M_`), and wearable (`W_`) sections. Fields without one of these prefixes are shown in the clinical/general section.
+5. Leave values blank only when they are genuinely unavailable. For numeric fields, enter numbers using the same units and definitions as the training data; for categorical fields, use category values consistent with training data. Do not guess.
+6. Add subsequent visits, review the table, and select **Validate and prepare manifest + scan ZIP**. The app checks duplicate patient/visit indices and non-decreasing elapsed time, then lets you download the generated files or use them directly for inference.
+
+The guided form depends on the checkpoint having usable feature metadata. Older checkpoints without a raw categorical schema may only expose their stored feature columns; use the CSV upload route if those columns are already one-hot encoded or if you need a specific raw feature schema. The form cannot determine whether entered medical values are clinically correct, whether units match training, or whether a scan is appropriate.
+
 ## Running real inference in the app
 
 1. Train the multimodal model on an authorised, correctly labelled dataset. The checkpoint is usually `multimodal_raw_results/multimodal_raw_model.pt` (depending on the training output directory).
