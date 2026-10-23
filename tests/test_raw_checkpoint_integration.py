@@ -154,23 +154,26 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     file_inputs.nth(0).set_input_files(str(checkpoint_path))
                     page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
 
+                    def textbox(label: str):
+                        return page.get_by_role("textbox", name=label, exact=True)
+
                     # Baseline visit.
-                    page.get_by_label("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
-                    page.get_by_label("Visit order (baseline = 0, next = 1, ...)").fill("0")
-                    page.get_by_label("Months since baseline (baseline = 0)").fill("0")
+                    textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
+                    textbox("Visit order (baseline = 0, next = 1, ...)").fill("0")
+                    textbox("Months since baseline (baseline = 0)").fill("0")
                     page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v0.nii.gz"))
-                    page.get_by_label("C_age (number; leave blank if unavailable)").fill("30")
-                    page.get_by_label("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
+                    textbox("C_age (number; leave blank if unavailable)").fill("30")
+                    textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
 
                     # Follow-up visit. The app re-renders the form with a new key after add.
-                    page.get_by_label("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
-                    page.get_by_label("Visit order (baseline = 0, next = 1, ...)").fill("1")
-                    page.get_by_label("Months since baseline (baseline = 0)").fill("6")
+                    textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
+                    textbox("Visit order (baseline = 0, next = 1, ...)").fill("1")
+                    textbox("Months since baseline (baseline = 0)").fill("6")
                     page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v1.nii.gz"))
-                    page.get_by_label("C_age (number; leave blank if unavailable)").fill("30")
-                    page.get_by_label("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
+                    textbox("C_age (number; leave blank if unavailable)").fill("30")
+                    textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
 
