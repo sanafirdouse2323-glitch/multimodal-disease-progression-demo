@@ -61,14 +61,29 @@ The script writes a model checkpoint, training history and run summary to `raw_i
 
 Use `train_multimodal_raw_image_model.py` when each visit has both a raw scan and tabular clinical, treatment, medicine, or wearable measurements. Unlike the image-only script above, this path encodes each raw scan with a 3D CNN, fuses its embedding with the available tabular values and explicit missingness masks, and uses a causal Transformer over that patient's visits.
 
-Start with [`multimodal_raw_manifest_template.csv`](multimodal_raw_manifest_template.csv). Required columns:
+Start with [`multimodal_raw_manifest_template.csv`](multimodal_raw_manifest_template.csv). The template uses `C_` for clinical, `T_` for treatment, `M_` for medicine, and `W_` for wearable features. Required columns:
 
 - `patient_id`: stable pseudonymous patient identifier.
 - `image_path`: one 3D NIfTI file or one-series DICOM directory per visit.
 - `stage`: verified integer label 0–3 for that visit.
 - `visit_idx`: unique visit order per patient.
 - `time_months`: optional numeric time relative to the patient's baseline; if omitted, `visit_idx` is used.
-- At least one supported numeric tabular feature column from the clinical, treatment, medicine, or wearable groups in the template. Columns can be omitted if unavailable; missing values in included columns are represented with observation masks. Feature scaling is fit on training patients only.
+- At least one numeric tabular feature column. The template uses group prefixes: **C_ = clinical**, **T_ = treatment**, **M_ = medicine**, and **W_ = wearable**. The training script accepts any numeric feature column with one of these prefixes, so you can rename columns to match your dataset without editing the model code. Older unprefixed demo columns are still accepted for backward compatibility. Columns can be omitted if unavailable; missing values in included columns are represented with observation masks. Feature scaling is fit on training patients only.
+
+### Replacing the demo columns with your real dataset
+
+The prefixes are a naming convention to keep the CSV organised; they do not transform or validate the meaning of a variable.
+
+| Prefix | Group | Example |
+|---|---|---|
+| `C_` | Clinical | `C_hemoglobin`, `C_age`, `C_bmi` |
+| `T_` | Treatment | `T_treatment_duration_days` |
+| `M_` | Medicine | `M_dose_per_day` |
+| `W_` | Wearable | `W_steps`, `W_sleep_hours` |
+
+If your real data has the **same columns and encodings**, copy the template and replace the example values, patient IDs, image paths, and verified stage labels. If your dataset has different numeric measurements, rename those feature columns using the correct prefix (for example, `C_hemoglobin`) and keep the required columns `patient_id`, `image_path`, `stage`, and `visit_idx`. You do not need to edit the model code just to add a new numeric feature with one of the four prefixes. For prediction, use the same feature names and encodings that were used for training; the checkpoint records the training feature columns.
+
+**Important data-format rules:** each feature column must be numeric. Encode categorical variables consistently before training (for example, use a documented numeric code for sex or medicine category); do not put free-text values such as `female`, `male`, or medicine names directly into these numeric feature columns. Keep units consistent, document each code and label mapping, and use only data you are authorised to process. Missing columns at prediction time are treated as unavailable, but missingness can reduce usefulness. Changing a column's name or encoding after training is not a substitute for retraining the model.
 
 Run:
 
