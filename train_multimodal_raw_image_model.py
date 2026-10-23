@@ -22,13 +22,27 @@ from torch.utils.data import DataLoader, Dataset
 
 from train_raw_image_model import normalize_volume, read_medical_volume, fit_volume_to_cube
 
+# Prefix convention for easy dataset substitution:
+# C_ = clinical, T_ = treatment, M_ = medicine, W_ = wearable.
+# Any numeric feature column using one of these prefixes is accepted.
 FEATURE_GROUPS = {
-    "clinical": ["lab1", "lab2", "vitals", "meds", "comorbidities", "age", "sex", "bmi"],
-    "treatment": ["treatment_flag", "time_since_treatment_start", "treatment_duration_days", "treatment_change"],
-    "medicine": ["medicine_type", "dose_per_day", "frequency_per_day", "cumulative_exposure"],
-    "wearable": ["steps", "sleep_hours", "heart_rate", "hrv", "activity"],
+    "clinical": ["C_lab1", "C_lab2", "C_vitals", "C_meds_count", "C_comorbidities_count",
+                 "C_age", "C_sex_code", "C_bmi"],
+    "treatment": ["T_treatment_flag", "T_time_since_treatment_start",
+                  "T_treatment_duration_days", "T_treatment_change"],
+    "medicine": ["M_medicine_type_code", "M_dose_per_day", "M_frequency_per_day",
+                 "M_cumulative_exposure"],
+    "wearable": ["W_steps", "W_sleep_hours", "W_heart_rate", "W_hrv", "W_activity"],
 }
-ALL_FEATURES = [c for group in FEATURE_GROUPS.values() for c in group]
+# Backward compatibility for existing manifests made with the earlier demo template.
+LEGACY_FEATURES = [
+    "lab1", "lab2", "vitals", "meds", "comorbidities", "age", "sex", "bmi",
+    "treatment_flag", "time_since_treatment_start", "treatment_duration_days",
+    "treatment_change", "medicine_type", "dose_per_day", "frequency_per_day",
+    "cumulative_exposure", "steps", "sleep_hours", "heart_rate", "hrv", "activity",
+]
+ALL_FEATURES = [c for group in FEATURE_GROUPS.values() for c in group] + LEGACY_FEATURES
+GROUP_PREFIXES = ("C_", "T_", "M_", "W_")
 
 
 def set_seed(seed: int) -> None:
@@ -72,12 +86,15 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
     frame["time_months"] = times.astype(float)
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
-    feature_cols = [col for col in ALL_FEATURES if col in frame.columns]
+    feature_cols = [
+        col for col in frame.columns
+        if col in ALL_FEATURES or col.startswith(GROUP_PREFIXES)
+    ]
     if not feature_cols:
         raise ValueError(
-            "For multimodal fusion, include at least one supported numeric feature column "
-            "from clinical, treatment, medicine, or wearable data. Use train_raw_image_model.py "
-            "for image-only training."
+            "For multimodal fusion, include at least one numeric feature column named with "
+            "C_ (clinical), T_ (treatment), M_ (medicine), or W_ (wearable), or use a legacy "
+            "column from the earlier template. Use train_raw_image_model.py for image-only training."
         )
     for col in feature_cols:
         frame[col] = pd.to_numeric(frame[col], errors="raise")
