@@ -202,6 +202,23 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
+                    # Verify that the browser has the intended follow-up values and file
+                    # before submitting the Streamlit form; failures here are easier to
+                    # diagnose than an ambiguous stale success message.
+                    self.assertEqual(
+                        spinbutton("Visit order (baseline = 0, next = 1, ...)").input_value(),
+                        "1",
+                        "Follow-up visit index was not retained in the browser control.",
+                    )
+                    self.assertEqual(
+                        spinbutton("Months since baseline (baseline = 0)").input_value(),
+                        "6.0",
+                        "Follow-up month value was not retained in the browser control.",
+                    )
+                    scan_files = uploader_input(
+                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)"
+                    ).evaluate("(el) => Array.from(el.files || []).map(file => file.name)")
+                    self.assertIn("P000_v1.nii.gz", scan_files, f"Follow-up scan not selected: {scan_files}")
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     wait_for_ui_text("2 visit(s) now in the review table.")
 
