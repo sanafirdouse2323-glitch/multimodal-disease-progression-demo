@@ -22,13 +22,27 @@ from torch.utils.data import DataLoader, Dataset
 
 from train_raw_image_model import normalize_volume, read_medical_volume, fit_volume_to_cube
 
+# Prefix convention for easy dataset substitution:
+# C_ = clinical, T_ = treatment, M_ = medicine, W_ = wearable.
+# Any numeric feature column using one of these prefixes is accepted.
 FEATURE_GROUPS = {
-    "clinical": ["lab1", "lab2", "vitals", "meds", "comorbidities", "age", "sex", "bmi"],
-    "treatment": ["treatment_flag", "time_since_treatment_start", "treatment_duration_days", "treatment_change"],
-    "medicine": ["medicine_type", "dose_per_day", "frequency_per_day", "cumulative_exposure"],
-    "wearable": ["steps", "sleep_hours", "heart_rate", "hrv", "activity"],
+    "clinical": ["C_lab1", "C_lab2", "C_vitals", "C_meds_count", "C_comorbidities_count",
+                 "C_age", "C_sex_code", "C_bmi"],
+    "treatment": ["T_treatment_flag", "T_time_since_treatment_start",
+                  "T_treatment_duration_days", "T_treatment_change"],
+    "medicine": ["M_medicine_type_code", "M_dose_per_day", "M_frequency_per_day",
+                 "M_cumulative_exposure"],
+    "wearable": ["W_steps", "W_sleep_hours", "W_heart_rate", "W_hrv", "W_activity"],
 }
-ALL_FEATURES = [c for group in FEATURE_GROUPS.values() for c in group]
+# Backward compatibility for existing manifests made with the earlier demo template.
+LEGACY_FEATURES = [
+    "lab1", "lab2", "vitals", "meds", "comorbidities", "age", "sex", "bmi",
+    "treatment_flag", "time_since_treatment_start", "treatment_duration_days",
+    "treatment_change", "medicine_type", "dose_per_day", "frequency_per_day",
+    "cumulative_exposure", "steps", "sleep_hours", "heart_rate", "hrv", "activity",
+]
+ALL_FEATURES = [c for group in FEATURE_GROUPS.values() for c in group] + LEGACY_FEATURES
+GROUP_PREFIXES = ("C_", "T_", "M_", "W_")
 
 
 def set_seed(seed: int) -> None:
@@ -72,18 +86,25 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
     frame["time_months"] = times.astype(float)
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
-    feature_cols = [col for col in ALL_FEATURES if col in frame.columns]
+    feature_cols = [
+        col for col in frame.columns
+        if col in ALL_FEATURES or col.startswith(GROUP_PREFIXES)
+    ]
     if not feature_cols:
         raise ValueError(
-            "For multimodal fusion, include at least one supported numeric feature column "
-            "from clinical, treatment, medicine, or wearable data. Use train_raw_image_model.py "
-            "for image-only training."
+            "For multimodal fusion, include at least one supported numeric feature or categorical feature column named with "
+            "C_ (clinical), T_ (treatment), M_ (medicine), or W_ (wearable), or use a legacy "
+            "column from the earlier template. Use train_raw_image_model.py for image-only training."
         )
     for col in feature_cols:
-        frame[col] = pd.to_numeric(frame[col], errors="raise")
-        vals = frame[col].dropna().to_numpy(dtype=float)
-        if not np.isfinite(vals).all():
-            raise ValueError(f"Feature {col!r} contains infinite values.")
+        if pd.api.types.is_object_dtype(frame[col]) or pd.api.types.is_string_dtype(frame[col]):
+            values = frame[col].astype("string").str.strip()
+            frame[col] = values.replace("", pd.NA)
+        else:
+            frame[col] = pd.to_numeric(frame[col], errors="raise")
+            vals = frame[col].dropna().to_numpy(dtype=float)
+            if not np.isfinite(vals).all():
+                raise ValueError(f"Feature {col!r} contains infinite values.")
     def resolve_path(value):
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
@@ -109,6 +130,49 @@ def split_by_patient(frame: pd.DataFrame, seed: int = 42):
     test_ids = set(ids[n_train + n_valid:])
     assert train_ids.isdisjoint(valid_ids) and train_ids.isdisjoint(test_ids) and valid_ids.isdisjoint(test_ids)
     return tuple(frame[frame.patient_id.isin(ids_part)].copy() for ids_part in (train_ids, valid_ids, test_ids))
+
+
+def fit_feature_schema(train_frame: pd.DataFrame, raw_feature_cols: list[str]) -> dict:
+    """Learn categorical vocabularies from training patients only."""
+    numeric_cols, categorical = [], {}
+    for col in raw_feature_cols:
+        if pd.api.types.is_object_dtype(train_frame[col]) or pd.api.types.is_string_dtype(train_frame[col]):
+            values = train_frame[col].dropna().astype(str).str.strip()
+            categorical[col] = sorted(v for v in values.unique().tolist() if v)
+        else:
+            numeric_cols.append(col)
+    return {"numeric_columns": numeric_cols, "categorical_categories": categorical}
+
+
+def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFrame, list[str]]:
+    """Expand categorical text to one-hot columns; retain missingness and unseen-category handling."""
+    encoded = frame[["patient_id", "image_path", "stage", "visit_idx", "time_months"]].copy()
+    feature_cols = []
+    for col in schema["numeric_columns"]:
+        values = pd.to_numeric(frame[col] if col in frame else pd.Series(np.nan, index=frame.index), errors="raise")
+        vals = values.dropna().to_numpy(dtype=float)
+        if not np.isfinite(vals).all():
+            raise ValueError(f"Feature {col!r} contains infinite values.")
+        encoded[col] = values
+        feature_cols.append(col)
+    for col, categories in schema["categorical_categories"].items():
+        raw = frame[col].astype("string").str.strip() if col in frame else pd.Series(pd.NA, index=frame.index, dtype="string")
+        raw = raw.replace("", pd.NA)
+        names = [f"{col}__category_{i}" for i in range(len(categories))]
+        unknown_name = f"{col}__unknown"
+        columns = names + [unknown_name]
+        for name in columns:
+            encoded[name] = 0.0
+        for row_index, value in raw.items():
+            if pd.isna(value):
+                for name in columns:
+                    encoded.at[row_index, name] = np.nan
+            elif str(value) in categories:
+                encoded.at[row_index, names[categories.index(str(value))]] = 1.0
+            else:
+                encoded.at[row_index, unknown_name] = 1.0
+        feature_cols.extend(columns)
+    return encoded, feature_cols
 
 
 def fit_feature_stats(train_frame: pd.DataFrame, feature_cols: list[str]):
@@ -306,13 +370,18 @@ def main():
     manifest_path = Path(args.manifest).expanduser().resolve()
     if not manifest_path.is_file():
         raise FileNotFoundError(f"Manifest not found: {manifest_path}")
-    frame, feature_cols = validate_manifest(pd.read_csv(manifest_path), manifest_path.parent)
+    frame, raw_feature_cols = validate_manifest(pd.read_csv(manifest_path), manifest_path.parent)
     train_df, valid_df, test_df = split_by_patient(frame, args.seed)
-    stats = fit_feature_stats(train_df, feature_cols)
-    sequences = make_sequences(frame, feature_cols, stats)
+    feature_schema = fit_feature_schema(train_df, raw_feature_cols)
+    encoded_frame, feature_cols = encode_feature_frame(frame, feature_schema)
     train_ids, valid_ids, test_ids = (
         set(train_df.patient_id), set(valid_df.patient_id), set(test_df.patient_id)
     )
+    encoded_train = encoded_frame[encoded_frame.patient_id.isin(train_ids)].copy()
+    encoded_valid = encoded_frame[encoded_frame.patient_id.isin(valid_ids)].copy()
+    encoded_test = encoded_frame[encoded_frame.patient_id.isin(test_ids)].copy()
+    stats = fit_feature_stats(encoded_train, feature_cols)
+    sequences = make_sequences(encoded_frame, feature_cols, stats)
     train_seq = [s for s in sequences if s["patient_id"] in train_ids]
     valid_seq = [s for s in sequences if s["patient_id"] in valid_ids]
     test_seq = [s for s in sequences if s["patient_id"] in test_ids]
@@ -370,6 +439,7 @@ def main():
         "n_features": len(feature_cols),
         "feature_columns": feature_cols,
         "feature_stats": stats,
+        "feature_schema": feature_schema,
         "image_size": args.image_size,
         "target_spacing_mm": args.target_spacing_mm,
         "modality": args.modality,
