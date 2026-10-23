@@ -16,7 +16,6 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from sklearn.metrics import accuracy_score, f1_score, classification_report, confusion_matrix
 from torch.utils.data import Dataset, DataLoader
 
