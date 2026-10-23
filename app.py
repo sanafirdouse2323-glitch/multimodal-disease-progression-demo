@@ -213,7 +213,9 @@ elif mode == "Run trained model":
                     st.session_state.guided_form_version += 1
                     st.session_state.guided_manifest_bytes = None
                     st.session_state.guided_zip_bytes = None
-                    st.success("Visit added. Review the table below; add another visit if needed.")
+                    st.success(
+                        f"Visit added. {len(st.session_state.guided_visits)} visit(s) now in the review table."
+                    )
     if st.session_state.guided_visits:
         st.markdown("#### Review entered visits")
         display_rows = [{k: v for k, v in row.items() if not k.startswith("_scan_")} for row in st.session_state.guided_visits]
@@ -253,7 +255,10 @@ elif mode == "Run trained model":
                             archive.writestr(row["_scan_name"], row["_scan_bytes"])
                     st.session_state.guided_manifest_bytes = manifest_buffer.getvalue().encode("utf-8")
                     st.session_state.guided_zip_bytes = zip_buffer.getvalue()
-                    st.success("Files prepared. Download them for your records, or use them directly below for inference.")
+                    st.success(
+                        f"Files prepared for {len(rows)} visit(s). Download them for your records, "
+                        "or use them directly below for inference."
+                    )
         with col_clear:
             if st.button("Clear all entered visits"):
                 st.session_state.guided_form_version += 1
@@ -400,23 +405,11 @@ elif mode == "Run trained model":
                     "--output", str(output_path),
                     "--device", "cpu",
                 ]
-                # CPU inference on small 3D volumes can become dramatically slower when
-                # OpenMP/BLAS launch a thread per reported host core. Use a conservative
-                # default for this app-launched worker, while allowing deployments to tune it.
-                cpu_threads = os.environ.get("MULTIMODAL_CPU_THREADS", "1")
-                inference_env = {
-                    **os.environ,
-                    "CUDA_VISIBLE_DEVICES": "",
-                    "OMP_NUM_THREADS": cpu_threads,
-                    "MKL_NUM_THREADS": cpu_threads,
-                    "OPENBLAS_NUM_THREADS": cpu_threads,
-                    "NUMEXPR_NUM_THREADS": cpu_threads,
-                }
                 with st.spinner("Loading scans and running inference on CPU. This may take a while..."):
                     completed = subprocess.run(
                         command, capture_output=True, text=True, timeout=900, check=False,
                         cwd=str(Path(__file__).resolve().parent),
-                        env=inference_env,
+                        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
                     )
                 if completed.returncode != 0:
                     st.error("Prediction failed. Review the diagnostic output below.")
