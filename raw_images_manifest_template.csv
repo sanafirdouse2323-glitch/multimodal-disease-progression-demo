@@ -1,6 +1,1 @@
 patient_id,image_path,stage,visit_idx
-P001,data/P001/visit0.nii.gz,0,0
-P001,data/P001/visit1.nii.gz,1,1
-P002,data/P002/visit0.nii.gz,0,0
-P003,data/P003/visit0.nii.gz,2,0
-P004,data/P004/visit0.nii.gz,3,0
