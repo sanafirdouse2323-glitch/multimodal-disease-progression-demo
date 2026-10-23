@@ -38,16 +38,24 @@ Install dependencies, prepare the manifest and image files, then run:
 
 ```bash
 python -m pip install -r requirements.txt
-python train_raw_image_model.py --manifest raw_images_manifest.csv
+python train_raw_image_model.py --manifest raw_images_manifest.csv --modality generic
 ```
 
 For a small smoke run on a suitably prepared dataset:
 
 ```bash
-python train_raw_image_model.py --manifest raw_images_manifest.csv --epochs 2 --batch-size 1 --image-size 32
+python train_raw_image_model.py --manifest raw_images_manifest.csv --epochs 2 --batch-size 1 --image-size 32 --modality generic
 ```
 
 The script writes a model checkpoint, training history and run summary to `raw_image_results/`. Test metrics are only meaningful for the supplied labelled dataset and patient split.
+
+### Modality and intensity preprocessing
+
+- Default `--modality generic`: clips each volume to its own 1st–99.5th intensity percentiles and standardizes it.
+- `--modality mri`: uses the same generic per-volume percentile policy as a basic starting point; MRI protocols can require more careful bias-field correction, registration, or normalization.
+- `--modality ct`: clips to the configured intensity window, then standardizes. Example command: `python train_raw_image_model.py --manifest raw_images_manifest.csv --modality ct --ct-window-low -1000 --ct-window-high 1000`. This window is only an example, not a universal CT setting; choose bounds based on anatomy and task and confirm pixel values are in Hounsfield units.
+
+**Important:** the current starter resizes the voxel array to a fixed cube without resampling in physical space. This can distort anatomy when scan dimensions or voxel spacing differ. Before scientific use, implement and validate modality-appropriate orientation handling, spacing-aware resampling, and protocol-specific preprocessing. Do not treat this default pipeline as clinically validated.
 
 ## Run in Google Colab
 
