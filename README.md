@@ -1,165 +1,98 @@
-# Multimodal Disease Progression Demo
+# Multimodal Disease-Progression Demo
 
-A synthetic, reproducible prototype for modelling disease progression from multimodal health data, including clinical records, wearable time-series measurements, imaging-derived features, and time-varying treatment exposure.
+A small **Python/PyTorch portfolio demo** for learning how to work with synthetic longitudinal health data. It combines clinical measurements, wearable signals, imaging-derived features, and treatment/medicine history, then predicts a patient's **current synthetic disease stage** from the current and earlier visits.
 
-This repository is designed as a research prototype and PhD-style demo project. It demonstrates a synthetic setting that reflects common challenges in longitudinal clinical data, including irregular visit schedules, missing data, and evolving treatment exposure.
+This project is intended to demonstrate programming, data preparation, model training, and evaluation skills for a PhD application. It is **not a clinical tool**, does not use real patient records, and does not establish clinical performance.
 
-## Motivation
+## What it demonstrates
 
-Chronic diseases often develop gradually over years, and their trajectories vary substantially between individuals. Understanding this progression is essential for early detection, personalised intervention, and improved long-term patient outcomes. Large multimodal health datasets that combine medical imaging, wearable sensor data, and clinical measurements now make it possible to study disease progression from multiple complementary perspectives.
+- Synthetic patient trajectories with non-uniform visit intervals.
+- Five feature groups: clinical, treatment, medicine, wearable, and imaging-derived features.
+- Explicit observation indicators so the model can distinguish imputed values from observed values.
+- Patient-level train/validation/test splits.
+- Training-only feature standardisation; validation and test data do not fit preprocessing statistics.
+- A causal attention mask so a prediction at a visit cannot attend to later visits.
+- A padding mask so padded visits do not contribute as genuine observations.
+- Comparison with a majority-class baseline, logistic regression, and random forest.
+- Held-out test metrics, a confusion matrix, a training curve, and a JSON run summary.
+- A fixed random seed for a reproducible starting point.
 
-A key challenge is that disease progression is usually influenced not only by observed biomarkers, but also by treatment decisions and medication exposure over time. Treatment can modify the apparent progression trajectory, and different medicine types may have different effects on disease dynamics. In a realistic longitudinal setting, treatment depends on more than a binary flag: the dose amount, frequency, duration, and cumulative exposure are all relevant to progression.
+## Important interpretation
 
-## Research question
+All data and labels are simulated. The stage is generated from a synthetic latent state, and measurements are generated from that state with noise. This makes the task useful for a code demonstration, but it is much simpler than real clinical data. The reported scores measure performance only on this particular synthetic generator; they should not be interpreted as evidence of clinical usefulness, fairness, causal treatment effects, or generalisation to real patients.
 
-How can we model disease progression over time using multimodal health data when patient visits are irregular, observations are incomplete, and treatment exposure changes across follow-up?
-
-## Project goal
-
-This project implements a synthetic benchmark for multimodal disease progression modelling. The objective is to learn a temporal representation of each patient’s disease state and predict disease stage from a combination of clinical, wearable, imaging-derived, and treatment-related features.
-
-## Dataset characteristics
-
-The synthetic data generator creates a realistic longitudinal patient dataset with:
-
-- patient-level trajectories across multiple visits
-- irregular time intervals between visits
-- disease stage labels from 0 to 3
-- clinical variables
-- wearable measurements
-- imaging-derived features
-- treatment indicators and medication information
-- dose, frequency, duration, and cumulative exposure variables
-- missing values in each modality
-
-This makes the dataset suitable as a proof-of-concept benchmark for disease progression research.
-
-## Treatment-aware design
-
-The current prototype explicitly includes treatment variables, including:
-
-- treatment flag
-- time since treatment started
-- treatment duration in days
-- treatment change indicator
-- medicine type
-- dose per day
-- frequency per day
-- cumulative exposure
-
-These are treated as time-varying clinical covariates that can influence disease trajectory. This makes the synthetic benchmark more realistic than a model that only includes imaging, wearables, and generic clinical variables.
-
-## Model overview
-
-The demo implements a multimodal temporal model with the following structure:
-
-1. modality-specific encoders for clinical, treatment, medicine, wearable, and imaging inputs
-2. separate treatment and medicine streams to preserve treatment-specific structure
-3. multimodal fusion into a shared latent representation
-4. a Transformer encoder for temporal modelling
-5. a stage-classification head
-6. robustness to missing values through modality masks
-
-Although simple, this design reflects a realistic methodological foundation for longitudinal multimodal health modelling.
-
-## Repository contents
-
-- `demo_disease_progression.py` — synthetic data generation, preprocessing, treatment-aware modelling, and training pipeline
-- `requirements.txt` — Python dependencies
-- `docs/README.md` — short project documentation
-- `README.md` — project overview and usage instructions
-- `PROJECT_SUMMARY.md` — concise project summary
+The model predicts the **current stage at each visit** using that visit's available features and the patient's earlier visits. It is not a future-event or time-to-progression model.
 
 ## Requirements
 
-The project uses the following Python libraries:
-
-- Python 3.9+
+- Python 3.10 or later recommended
 - PyTorch
 - NumPy
 - pandas
 - scikit-learn
 - matplotlib
-- seaborn
 
 ## Setup
 
-Clone the repository:
+Clone the repository and enter the project directory:
 
 ```bash
 git clone https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo.git
 cd multimodal-disease-progression-demo
+python -m venv .venv
 ```
 
-Create and activate a virtual environment:
+Activate the environment:
+
+**Windows (PowerShell)**
+
+```powershell
+.venv\Scripts\Activate.ps1
+```
+
+**macOS/Linux**
 
 ```bash
-python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-Install dependencies:
+Install dependencies and run:
 
 ```bash
-pip install -r requirements.txt
-```
-
-## Run the demo
-
-```bash
+python -m pip install -r requirements.txt
 python demo_disease_progression.py
 ```
 
-This script will:
+The script prints held-out test metrics and saves the following files under `results/`:
 
-- generate a synthetic multimodal dataset with treatment and medicine exposure history
-- simulate irregular visits and missingness
-- build patient-level sequences
-- train the treatment-aware Transformer model
-- print training and validation metrics
+- `test_metrics.csv` — test accuracy and macro-F1 for all baselines and the Transformer
+- `training_history.csv` — training and validation loss and validation metrics by epoch
+- `training_curve.png` — training/validation loss plot
+- `transformer_confusion_matrix.png` — test-set confusion matrix
+- `run_summary.json` — run configuration, split sizes, metrics, and interpretation note
 
-## Example output
+Results are generated when you run the script; no scores are claimed in advance.
 
-The script prints metrics such as:
+## Run tests
 
-```text
-Epoch 01 | train_loss=... | val_loss=... | acc=... | macro_f1=...
-Epoch 02 | train_loss=... | val_loss=... | acc=... | macro_f1=...
-...
+```bash
+python -m unittest discover -s tests -v
 ```
 
-## Use cases
+## Main implementation
 
-This prototype is useful for:
-
-- methodological demonstrations in a thesis or dissertation
-- introductory teaching on multimodal health modelling
-- benchmarking longitudinal disease progression pipelines
-- extending to real clinical datasets
-- developing stronger transformer-based or survival-based models
-- exploring treatment-aware progression modelling
-
-## Extension ideas
-
-This demo can be extended in several ways:
-
-- replace the current sequence model with a more expressive temporal Transformer architecture
-- use cross-attention between treatment, medicine, and other modalities
-- add time-to-event prediction for progression risk
-- model treatment effects explicitly through causal or counterfactual approaches
-- incorporate uncertainty estimation and calibration analysis
-- validate on real chronic disease datasets
+- `demo_disease_progression.py` — synthetic data generation, preprocessing, sequence batching, model, baselines, evaluation, and plots
+- `tests/test_demo.py` — small checks for the data pipeline, patient splits, padding, and model output
+- `requirements.txt` — dependencies
 
 ## Limitations
 
-This is a synthetic demonstration project and is not intended to represent a real medical dataset or clinical decision system. It is designed for reproducible method development, research exploration, and thesis/demo use only.
-
-## Summary
-
-This repository demonstrates a realistic synthetic foundation for disease progression modelling using multimodal longitudinal data, including treatment and medicine exposure variables. It captures several central technical challenges of the field: irregular follow-up, missing observations, multimodal integration, evolving treatment exposure, and temporal disease dynamics.
-
-It is appropriate as a proof-of-concept baseline for a PhD project, research proposal, or demo presentation.
+- Synthetic data only; no real-world or clinical validation.
+- The data-generating process is intentionally simplified and may not capture real disease biology or care pathways.
+- The treatment process is simulated and cannot support claims about real treatment effects.
+- The current task is stage classification, not survival analysis or future progression forecasting.
+- A single seeded run is for demonstration; stronger evaluation would require repeated seeds and real datasets with appropriate access, governance, and outcome definitions.
 
 ## License
 
-This project is provided for demonstration and research use.
+No open-source license has been selected yet. Until one is added, do not assume the repository is licensed for reuse beyond rights granted by applicable law.
