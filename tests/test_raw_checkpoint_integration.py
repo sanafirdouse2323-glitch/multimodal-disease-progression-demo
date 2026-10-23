@@ -157,10 +157,13 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     def textbox(label: str):
                         return page.get_by_role("textbox", name=label, exact=True)
 
+                    def spinbutton(label: str):
+                        return page.get_by_role("spinbutton", name=label, exact=True)
+
                     # Baseline visit.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
-                    textbox("Visit order (baseline = 0, next = 1, ...)").fill("0")
-                    textbox("Months since baseline (baseline = 0)").fill("0")
+                    spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("0")
+                    spinbutton("Months since baseline (baseline = 0)").fill("0")
                     page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v0.nii.gz"))
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
@@ -169,8 +172,8 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
 
                     # Follow-up visit. The app re-renders the form with a new key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
-                    textbox("Visit order (baseline = 0, next = 1, ...)").fill("1")
-                    textbox("Months since baseline (baseline = 0)").fill("6")
+                    spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("1")
+                    spinbutton("Months since baseline (baseline = 0)").fill("6")
                     page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v1.nii.gz"))
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
