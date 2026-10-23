@@ -35,6 +35,7 @@ class RawImageTemporalFusionTests(unittest.TestCase):
     def test_feature_stats_use_training_rows_and_missingness_is_preserved(self):
         frame = pd.DataFrame({"patient_id": ["A", "B", "C"], "visit_idx": [0, 0, 0],
                               "image_path": ["a", "b", "c"], "stage": [0, 1, 2],
+                              "time_months": [0.0, 0.0, 0.0],
                               "lab1": [2.0, np.nan, 1000.0]})
         stats = fit_feature_stats(frame.iloc[:2], ["lab1"])
         self.assertEqual(stats["lab1"]["mean"], 2.0)
