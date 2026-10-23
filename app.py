@@ -8,6 +8,7 @@ from __future__ import annotations
 import io
 import os
 import subprocess
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -132,7 +133,7 @@ elif mode == "Run trained model":
                         else:
                             target.parent.mkdir(parents=True, exist_ok=True)
                             with archive.open(member) as source, target.open("wb") as dest:
-                                dest.write(source.read())
+                                shutil.copyfileobj(source, dest, length=1024 * 1024)
 
                 # The manifest lives at the workspace root, so relative image paths resolve from there.
                 missing_paths = []
