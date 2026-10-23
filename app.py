@@ -5,6 +5,7 @@ a prediction manifest, and an archive of the corresponding authorised scan files
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import os
 import re
@@ -94,6 +95,15 @@ elif mode == "Run trained model":
     categorical_fields = {}
     if checkpoint_file is not None:
         try:
+            checkpoint_digest = hashlib.sha256(checkpoint_file.getvalue()).hexdigest()
+            previous_digest = st.session_state.get("guided_checkpoint_sha")
+            if previous_digest is not None and previous_digest != checkpoint_digest:
+                st.session_state.guided_visits = []
+                st.session_state.guided_manifest_bytes = None
+                st.session_state.guided_zip_bytes = None
+                st.session_state.guided_form_version += 1
+                st.warning("The checkpoint changed, so previously entered visits were cleared to avoid using a manifest with a different model schema.")
+            st.session_state.guided_checkpoint_sha = checkpoint_digest
             # Read only tensor/primitive checkpoint data; do not execute arbitrary pickle objects.
             checkpoint_metadata = torch.load(
                 io.BytesIO(checkpoint_file.getvalue()), map_location="cpu", weights_only=True
