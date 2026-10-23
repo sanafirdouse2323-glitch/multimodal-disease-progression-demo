@@ -197,7 +197,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         medicine_box.wait_for(state="visible")
                     medicine_box.fill("MedicineA")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    wait_for_ui_text("1 visit(s) now in the review table.")
+                    wait_for_ui_text("Visits in review table: 1")
 
                     # Follow-up visit. The app re-renders the form with a new key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
@@ -239,7 +239,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     ).evaluate("(el) => Array.from(el.files || []).map(file => file.name)")
                     self.assertIn("P000_v1.nii.gz", scan_files, f"Follow-up scan not selected: {scan_files}")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    wait_for_ui_text("2 visit(s) now in the review table.")
+                    wait_for_ui_text("Visits in review table: 2")
 
                     page.get_by_role("button", name="Validate and prepare manifest + scan ZIP").click()
                     wait_for_ui_text("Files prepared for 2 visit(s).")
