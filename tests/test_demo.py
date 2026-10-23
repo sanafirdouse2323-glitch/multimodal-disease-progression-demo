@@ -36,6 +36,19 @@ class DemoPipelineTests(unittest.TestCase):
         self.assertTrue(np.isfinite(transformed_train["lab1"].to_numpy()).all())
         self.assertTrue(np.isfinite(transformed_valid["lab1"].to_numpy()).all())
 
+    def test_scaling_statistics_come_from_training_split_only(self):
+        patient_ids = sorted(self.raw["patient_id"].unique())
+        train = self.raw[self.raw.patient_id.isin(patient_ids[:10])].copy()
+        other = self.raw[self.raw.patient_id.isin(patient_ids[10:])].copy()
+        train_mean = train["lab1"].mean()
+        other.loc[:, "lab1"] = 1_000_000.0
+
+        means, stds = demo.fit_feature_stats(train)
+        transformed_other = demo.transform_features(other, means, stds)
+
+        self.assertAlmostEqual(float(means["lab1"]), float(train_mean))
+        self.assertGreater(float(transformed_other["lab1"].iloc[0]), 1000.0)
+
     def test_collation_marks_padding_and_model_outputs_finite_logits(self):
         patient_ids = sorted(self.raw["patient_id"].unique())
         train = self.raw[self.raw.patient_id.isin(patient_ids[:12])].copy()
