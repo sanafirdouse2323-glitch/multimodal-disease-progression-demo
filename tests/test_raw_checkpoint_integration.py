@@ -152,9 +152,30 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # visually hidden; click the visible label instead of the input.
                     page.get_by_text("Run trained model", exact=True).click()
                     page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
-                    file_inputs = page.locator('input[type="file"]')
-                    file_inputs.nth(0).set_input_files(str(checkpoint_path))
+                    def uploader_input(label: str):
+                        uploader = page.locator('[data-testid="stFileUploader"]').filter(
+                            has=page.get_by_text(label, exact=True)
+                        )
+                        return uploader.locator('input[type="file"]')
+
+                    uploader_input("Model checkpoint (.pt)").set_input_files(str(checkpoint_path))
                     page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
+
+                    def wait_for_ui_text(expected: str, timeout_ms: int = 20_000):
+                        try:
+                            page.get_by_text(expected, exact=False).wait_for(timeout=timeout_ms)
+                        except PlaywrightTimeoutError as exc:
+                            visible = page.locator("body").inner_text()
+                            app_log_handle.flush()
+                            try:
+                                log_text = app_log_path.read_text(encoding="utf-8", errors="replace")
+                            except OSError as log_error:
+                                log_text = f"Could not read Streamlit log: {log_error}"
+                            raise AssertionError(
+                                f"Expected UI state was not reached: {expected!r}.\\n"
+                                + "Visible UI:\\n" + visible[-8000:]
+                                + "\\nStreamlit server log:\\n" + log_text[-12000:]
+                            ) from exc
 
                     def textbox(label: str):
                         return page.get_by_role("textbox", name=label, exact=True)
@@ -166,26 +187,26 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
-                    page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v0.nii.gz"))
+                    uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    page.get_by_text("1 visit(s) now in the review table.", exact=False).wait_for(timeout=20_000)
+                    wait_for_ui_text("1 visit(s) now in the review table.")
 
                     # Follow-up visit. The app re-renders the form with a new key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("1")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
-                    page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v1.nii.gz"))
+                    uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
                     page.get_by_role("button", name="Add this visit to the review table").click()
-                    page.get_by_text("2 visit(s) now in the review table.", exact=False).wait_for(timeout=20_000)
+                    wait_for_ui_text("2 visit(s) now in the review table.")
 
                     page.get_by_role("button", name="Validate and prepare manifest + scan ZIP").click()
-                    page.get_by_text("Files prepared for 2 visit(s).", exact=False).wait_for(timeout=20_000)
+                    wait_for_ui_text("Files prepared for 2 visit(s).")
                     page.get_by_role("button", name="Download prepared manifest CSV").wait_for()
                     page.get_by_role("button", name="Download prepared scan ZIP").wait_for()
 
