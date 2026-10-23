@@ -82,7 +82,15 @@ For a small smoke run on a suitably prepared dataset:
 python train_multimodal_raw_image_model.py --manifest multimodal_raw_manifest.csv --epochs 1 --batch-size 2 --image-size 16 --target-spacing-mm 1.0
 ```
 
-The model checkpoint includes its feature-column order, training-only feature statistics, image size, target spacing, modality settings and architecture identifier. The output directory also contains training history and a JSON run summary with held-out test metrics. For deployment/inference, recreate the same preprocessing and architecture and load the saved checkpoint; this script is currently a training/evaluation pipeline, not a packaged prediction API.
+The model checkpoint includes its feature-column order, training-only feature statistics, image size, target spacing, modality settings and architecture identifier. The output directory also contains training history and a JSON run summary with held-out test metrics.
+
+To generate per-visit predictions from a saved checkpoint, prepare a CSV with `patient_id`, `image_path`, `visit_idx`, optional `time_months`, and the same feature columns used for training (unavailable feature columns may be omitted and are treated as missing):
+
+```bash
+python predict_multimodal_raw_image_model.py --checkpoint multimodal_raw_results/multimodal_raw_model.pt --manifest prediction_manifest.csv --output predictions.csv
+```
+
+The output CSV includes the predicted stage, confidence, and four class probabilities per visit. This is a research prediction interface, not a clinical decision tool.
 
 **Important:** this performs causal sequence classification of supplied visit-stage labels. It is not a validated future-outcome forecast. Patient-level splitting reduces patient leakage, but does not remove confounding, site/scanner shift, label errors, or small-sample uncertainty. No real medical data or clinical performance is supplied by the repository.
 
