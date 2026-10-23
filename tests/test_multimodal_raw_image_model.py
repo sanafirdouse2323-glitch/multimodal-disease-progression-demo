@@ -56,6 +56,22 @@ class RawImageTemporalFusionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "at most one scan row per visit_idx"):
                 validate_manifest(duplicated, Path(directory))
 
+    def test_group_prefixed_real_data_features_are_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            scan = root / "scan.nii.gz"
+            sitk.WriteImage(sitk.GetImageFromArray(np.zeros((16, 16, 16), dtype=np.float32)), str(scan))
+            frame = pd.DataFrame({
+                "patient_id": ["P1"], "image_path": [scan.name], "stage": [0], "visit_idx": [0],
+                "C_hemoglobin": [12.5], "W_steps": [4200.0], "T_duration_days": [14.0],
+                "M_dose_mg": [5.0],
+            })
+            _, feature_cols = validate_manifest(frame, root)
+            self.assertEqual(
+                set(feature_cols),
+                {"C_hemoglobin", "W_steps", "T_duration_days", "M_dose_mg"},
+            )
+
     def test_end_to_end_fusion_training_smoke_test(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
