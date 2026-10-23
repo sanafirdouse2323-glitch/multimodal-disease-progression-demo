@@ -1,61 +1,34 @@
-# Multimodal Disease Progression Demo
+# Multimodal Disease-Progression Demo
 
-This repository contains a synthetic proof-of-concept prototype for modelling disease progression using multimodal health data.
+This repository contains a synthetic Python/PyTorch demonstration of multimodal longitudinal stage classification.
 
 ## Overview
 
-The prototype simulates a realistic health-data setting in which patient trajectories are represented by:
+The synthetic data generator creates patient visits with non-uniform time intervals and five feature groups: clinical measurements, treatment variables, medicine variables, wearable measurements, and imaging-derived features.
 
-- clinical records
-- wearable time-series signals
-- imaging-derived features
-- treatment and medication history
-- dose, frequency, and exposure history
-- irregular visit schedules
-- missing observations
+Missing observations are represented by explicit observation indicators created before imputation. Patients are split by patient ID into training, validation, and test partitions. Scaling statistics are fitted on training patients only and reused unchanged for the other partitions.
 
-At each visit, the model predicts the patient’s disease stage. Treatment variables include:
+## Model and task
 
-- treatment flag
-- time since treatment started
-- treatment duration in days
-- treatment change indicator
-- medicine type
-- dose per day
-- frequency per day
-- cumulative exposure
+Separate small encoders process each feature group. Their outputs are fused, combined with a representation of visit time, and passed through a Transformer. A causal attention mask prevents a visit from attending to later visits, and a padding mask marks padded sequence positions.
 
-This makes the dataset more clinically realistic than a model that ignores treatment effects.
+The task is **current synthetic stage classification**: the model predicts the stage at each visit from features available at that visit and earlier visits. This is not future progression forecasting or time-to-event modelling.
 
-## Dataset
+## Run
 
-The synthetic dataset includes patient trajectories spanning multiple irregular visits. Disease stage increases with patient-specific latent risk and time, while each modality is generated to reflect disease progression. Importantly, treatment initiation, dose, frequency, duration, and cumulative exposure are allowed to modify the disease trajectory, creating a more realistic longitudinal setting.
-
-## Model
-
-The model uses:
-
-1. modality-specific encoders for clinical, treatment, medicine, wearable, and imaging data
-2. separate treatment and medicine streams
-3. multimodal fusion into a shared latent representation
-4. a Transformer encoder to model longitudinal disease dynamics
-5. a stage-classification head
-
-The design is intentionally compact but realistic enough to support a PhD demo or research prototype.
-
-## Setup
+Create and activate a virtual environment, then install the dependencies:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+python -m venv .venv
+# Windows PowerShell: .venv\\Scripts\\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
 python demo_disease_progression.py
 ```
 
-## Expected outcome
+The script writes held-out test metrics, training history, a confusion matrix, a training curve, and a JSON run summary to `results/`.
 
-The script generates synthetic data, trains a multimodal disease progression model, and prints training/validation metrics such as loss, accuracy, and macro F1 score.
+## Limitations
 
-## Notes
-
-This is a synthetic demonstration project and is intended for research prototyping and methodological exploration. It is not a clinical decision-support system.
+All data are synthetic. This project demonstrates implementation and evaluation workflow only; it does not establish clinical validity or support claims about real treatment effects. See the main README for further details.

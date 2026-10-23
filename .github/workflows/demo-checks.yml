@@ -1,0 +1,33 @@
+name: Demo checks
+
+on:
+  push:
+    branches: ["main", "demo-quality-fixes"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run unit and smoke tests
+        run: python -m unittest discover -s tests -v
+      - name: Run complete synthetic demo
+        run: python demo_disease_progression.py
+      - name: Upload generated results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-demo-results
+          path: results/
+          if-no-files-found: warn
