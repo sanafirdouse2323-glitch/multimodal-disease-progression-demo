@@ -171,23 +171,28 @@ def split_patient_ids(df: pd.DataFrame, seed: int = SEED):
     return train_ids, valid_ids, test_ids
 
 
-def prepare_features(train_df: pd.DataFrame, other_df: pd.DataFrame):
-    """Fit imputation/scaling on training patients only; preserve missingness masks."""
-    train = train_df.copy()
-    other = other_df.copy()
-    feature_cols = [c for cols in GROUPS.values() for c in cols]
-    means = train[feature_cols].mean()
-    means = means.fillna(0.0)
-    stds = train[feature_cols].std(ddof=0).replace(0, 1.0).fillna(1.0)
+def fit_feature_stats(train_df: pd.DataFrame):
+    """Fit scaling statistics using training patients only."""
+    feature_cols = [col for cols in GROUPS.values() for col in cols]
+    means = train_df[feature_cols].mean().fillna(0.0)
+    stds = train_df[feature_cols].std(ddof=0).replace(0, 1.0).fillna(1.0)
+    return means, stds
 
-    def transform(frame):
-        out = frame.copy()
-        for col in feature_cols:
-            # Masks are created from original NaNs before imputation.
-            out[f"{col}__observed"] = out[col].notna().astype(np.float32)
-            out[col] = ((out[col] - means[col]) / stds[col]).fillna(0.0)
-        return out
-    return transform(train), transform(other)
+
+def transform_features(df: pd.DataFrame, means: pd.Series, stds: pd.Series) -> pd.DataFrame:
+    """Scale features with training-only statistics and preserve original missingness."""
+    out = df.copy()
+    for col in means.index:
+        # Create the mask before imputation so missing values remain identifiable.
+        out[f"{col}__observed"] = out[col].notna().astype(np.float32)
+        out[col] = ((out[col] - means[col]) / stds[col]).fillna(0.0)
+    return out
+
+
+def prepare_features(train_df: pd.DataFrame, other_df: pd.DataFrame):
+    """Fit scaling on train, then apply the same statistics to another split."""
+    means, stds = fit_feature_stats(train_df)
+    return transform_features(train_df, means, stds), transform_features(other_df, means, stds)
 
 
 def make_sequences(df: pd.DataFrame) -> list[dict]:
@@ -368,16 +373,11 @@ def main():
     test_raw = df[df.patient_id.isin(test_ids)].copy()
     assert not (train_ids & valid_ids or train_ids & test_ids or valid_ids & test_ids)
 
-    train_df, valid_df = prepare_features(train_raw, valid_raw)
-    # Apply exactly the same training-fitted statistics to test data.
-    # Recreate them explicitly here to avoid fitting anything on validation/test.
-    feature_cols = [c for cols in GROUPS.values() for c in cols]
-    means = train_raw[feature_cols].mean().fillna(0.0)
-    stds = train_raw[feature_cols].std(ddof=0).replace(0, 1.0).fillna(1.0)
-    test_df = test_raw.copy()
-    for col in feature_cols:
-        test_df[f"{col}__observed"] = test_df[col].notna().astype(np.float32)
-        test_df[col] = ((test_df[col] - means[col]) / stds[col]).fillna(0.0)
+    # Fit preprocessing once on training patients and reuse it unchanged.
+    means, stds = fit_feature_stats(train_raw)
+    train_df = transform_features(train_raw, means, stds)
+    valid_df = transform_features(valid_raw, means, stds)
+    test_df = transform_features(test_raw, means, stds)
 
     train_sequences, valid_sequences, test_sequences = map(
         make_sequences, [train_df, valid_df, test_df]
