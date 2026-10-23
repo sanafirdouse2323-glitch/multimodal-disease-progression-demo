@@ -29,20 +29,34 @@ def set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def normalize_volume(volume: np.ndarray) -> np.ndarray:
-    """Clip each scan to its own robust intensity percentiles and standardize.
+def normalize_volume(
+    volume: np.ndarray,
+    modality: str = "generic",
+    ct_window_low: float = -1000.0,
+    ct_window_high: float = 1000.0,
+) -> np.ndarray:
+    """Normalize a volume using a declared modality policy.
 
-    This is a generic starting point only. Modality-specific preprocessing
-    (especially CT Hounsfield-unit windows) may be needed for a real study.
+    CT mode applies a configurable intensity window before standardization.
+    The default [-1000, 1000] HU window is only a generic starting point; it
+    may be unsuitable for a specific anatomy/task and must be selected for the
+    intended study. MRI/generic mode uses per-volume percentile clipping.
     """
     arr = np.asarray(volume, dtype=np.float32)
     finite = np.isfinite(arr)
     if not finite.any():
         raise ValueError("Image volume contains no finite voxel values.")
+    if modality not in {"generic", "ct", "mri"}:
+        raise ValueError("modality must be one of: generic, ct, mri")
     values = arr[finite]
-    lo, hi = np.percentile(values, [1.0, 99.5])
-    if hi <= lo:
-        hi = lo + 1.0
+    if modality == "ct":
+        if not np.isfinite(ct_window_low) or not np.isfinite(ct_window_high) or ct_window_high <= ct_window_low:
+            raise ValueError("CT window must have finite bounds with high > low.")
+        lo, hi = float(ct_window_low), float(ct_window_high)
+    else:
+        lo, hi = np.percentile(values, [1.0, 99.5])
+        if hi <= lo:
+            hi = lo + 1.0
     arr = np.clip(np.nan_to_num(arr, nan=float(np.median(values)), posinf=hi, neginf=lo), lo, hi)
     mean = float(arr.mean())
     std = float(arr.std())
@@ -51,9 +65,15 @@ def normalize_volume(volume: np.ndarray) -> np.ndarray:
     return ((arr - mean) / std).astype(np.float32)
 
 
-def volume_to_tensor(volume: np.ndarray, image_size: int = 64) -> torch.Tensor:
+def volume_to_tensor(
+    volume: np.ndarray,
+    image_size: int = 64,
+    modality: str = "generic",
+    ct_window_low: float = -1000.0,
+    ct_window_high: float = 1000.0,
+) -> torch.Tensor:
     """Convert a Z,Y,X array into a normalized [1,Z,Y,X] tensor of fixed size."""
-    arr = normalize_volume(volume)
+    arr = normalize_volume(volume, modality, ct_window_low, ct_window_high)
     tensor = torch.from_numpy(arr)[None, None, ...]
     tensor = F.interpolate(tensor, size=(image_size, image_size, image_size),
                            mode="trilinear", align_corners=False)
@@ -95,9 +115,15 @@ def read_medical_volume(path: str) -> np.ndarray:
 
 
 class RawVolumeDataset(Dataset):
-    def __init__(self, frame: pd.DataFrame, image_size: int = 64):
+    def __init__(
+        self, frame: pd.DataFrame, image_size: int = 64, modality: str = "generic",
+        ct_window_low: float = -1000.0, ct_window_high: float = 1000.0,
+    ):
         self.frame = frame.reset_index(drop=True).copy()
         self.image_size = image_size
+        self.modality = modality
+        self.ct_window_low = ct_window_low
+        self.ct_window_high = ct_window_high
 
     def __len__(self) -> int:
         return len(self.frame)
@@ -105,7 +131,9 @@ class RawVolumeDataset(Dataset):
     def __getitem__(self, index: int):
         row = self.frame.iloc[index]
         volume = read_medical_volume(str(row["image_path"]))
-        image = volume_to_tensor(volume, self.image_size)
+        image = volume_to_tensor(
+            volume, self.image_size, self.modality, self.ct_window_low, self.ct_window_high
+        )
         return image, int(row["stage"])
 
 
@@ -208,11 +236,22 @@ def main():
     parser.add_argument("--epochs", type=int, default=15)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--image-size", type=int, default=64)
+    parser.add_argument("--modality", choices=["generic", "ct", "mri"], default="generic",
+                        help="Normalization policy; CT windowing is configurable.")
+    parser.add_argument("--ct-window-low", type=float, default=-1000.0,
+                        help="Lower CT intensity/HU window bound (used only with --modality ct).")
+    parser.add_argument("--ct-window-high", type=float, default=1000.0,
+                        help="Upper CT intensity/HU window bound (used only with --modality ct).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", default="raw_image_results")
     args = parser.parse_args()
     if args.epochs < 1 or args.batch_size < 1 or args.image_size < 16:
         raise ValueError("epochs/batch-size must be positive and image-size must be >=16.")
+    if args.modality == "ct" and (
+        not np.isfinite(args.ct_window_low) or not np.isfinite(args.ct_window_high)
+        or args.ct_window_high <= args.ct_window_low
+    ):
+        raise ValueError("For CT, ct-window-high must be finite and greater than ct-window-low.")
     set_seed(args.seed)
     manifest_path = Path(args.manifest).expanduser().resolve()
     if not manifest_path.is_file():
@@ -232,11 +271,15 @@ def main():
           f"validation={valid_df.patient_id.nunique()}, test={test_df.patient_id.nunique()}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
-    train_loader = DataLoader(RawVolumeDataset(train_df, args.image_size), batch_size=args.batch_size,
+    dataset_args = {
+        "image_size": args.image_size, "modality": args.modality,
+        "ct_window_low": args.ct_window_low, "ct_window_high": args.ct_window_high,
+    }
+    train_loader = DataLoader(RawVolumeDataset(train_df, **dataset_args), batch_size=args.batch_size,
                               shuffle=True, num_workers=0)
-    valid_loader = DataLoader(RawVolumeDataset(valid_df, args.image_size), batch_size=args.batch_size,
+    valid_loader = DataLoader(RawVolumeDataset(valid_df, **dataset_args), batch_size=args.batch_size,
                               shuffle=False, num_workers=0)
-    test_loader = DataLoader(RawVolumeDataset(test_df, args.image_size), batch_size=args.batch_size,
+    test_loader = DataLoader(RawVolumeDataset(test_df, **dataset_args), batch_size=args.batch_size,
                              shuffle=False, num_workers=0)
     model = Small3DCNN().to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-3, weight_decay=1e-4)
@@ -282,6 +325,13 @@ def main():
     summary = {
         "task": "supervised 3D scan classification",
         "input": "raw 3D medical volumes (NIfTI files or one-series-per-directory DICOM)",
+        "preprocessing": {
+            "modality": args.modality,
+            "image_size_voxels": args.image_size,
+            "ct_window_low": args.ct_window_low if args.modality == "ct" else None,
+            "ct_window_high": args.ct_window_high if args.modality == "ct" else None,
+            "note": "Array is resized to a fixed cube without physical-space resampling; validate spacing/orientation handling for the intended dataset."
+        },
         "n_scans": len(frame), "n_patients": int(frame.patient_id.nunique()),
         "split_patients": {
             "train": int(train_df.patient_id.nunique()),
@@ -294,7 +344,7 @@ def main():
         "limitations": [
             "This is research starter code, not a clinical tool.",
             "All labels must be supplied and verified by the dataset owner; this script does not create labels.",
-            "A simple per-volume intensity normalization is used. CT-specific Hounsfield-unit windows and modality-specific preprocessing may be required.",
+            "Preprocessing is a configurable research starter, not a validated protocol. CT window bounds must be selected for the anatomy/task; MRI intensity handling is per-volume percentile clipping.",
             "Resizing 3D scans to a fixed cube may discard spatial detail and is not a validated medical preprocessing protocol.",
             "Results are meaningful only if dataset labels, acquisition protocols, and patient-level splits are appropriate.",
             "This standalone raw-image CNN currently uses images and labels only; it is not yet fused with the existing clinical/wearable/treatment temporal model."
