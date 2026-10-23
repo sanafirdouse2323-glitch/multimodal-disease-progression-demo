@@ -155,7 +155,12 @@ elif mode == "Run trained model":
             feature_values = {}
             for group_name, fields in grouped_fields.items():
                 if fields:
-                    with st.expander(group_name, expanded=(group_name == "Clinical features")):
+                    # Keep all checkpoint-required feature groups open in the guided form.
+                    # Collapsed widgets are easy to miss and complicate accessible browser use.
+                    with st.expander(
+                        group_name,
+                        expanded=(group_name in {"Clinical features", "Medicine features"}),
+                    ):
                         for field in fields:
                             if field in categorical_fields:
                                 feature_values[field] = st.text_input(
