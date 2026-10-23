@@ -40,7 +40,6 @@ GROUPS = {
     "imaging": IMAGING_COLS,
 }
 LABEL_COL = "stage"
-ID_COLS = ["patient_id", "visit_idx", "time_months", LABEL_COL]
 
 
 def set_seed(seed: int = SEED) -> None:
@@ -72,7 +71,6 @@ def generate_demo_dataset(n_patients: int = 500, seed: int = SEED) -> pd.DataFra
         treatment_start_month = None
         medicine_type = 0
         cumulative_exposure = 0.0
-        previous_treatment_flag = 0
 
         for visit_idx, months in enumerate(visit_times):
             if visit_idx > 0:
@@ -143,7 +141,6 @@ def generate_demo_dataset(n_patients: int = 500, seed: int = SEED) -> pd.DataFra
                 "tissue_change": float(max(0, 0.12 + 0.20 * latent + noise(0.14))),
             }
             rows.append(row)
-            previous_treatment_flag = treatment_flag
 
     df = pd.DataFrame(rows)
     # Missingness is generated independently of the target label in this demo.
@@ -347,8 +344,12 @@ def train_model(train_sequences, valid_sequences, device, epochs=18, batch_size=
 
 
 def flatten_visit_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
-    cols = [c for group in GROUPS.values() for c in group]
-    return df[cols].to_numpy(dtype=np.float32), df[LABEL_COL].to_numpy(dtype=np.int64)
+    """Flatten visits for baselines, including explicit missingness indicators."""
+    cols = [col for group in GROUPS.values() for col in group]
+    values = df[cols].to_numpy(dtype=np.float32)
+    observed = df[[f"{col}__observed" for col in cols]].to_numpy(dtype=np.float32)
+    features = np.concatenate([values, observed], axis=1)
+    return features, df[LABEL_COL].to_numpy(dtype=np.int64)
 
 
 def save_confusion_matrix(y_true, y_pred, path: Path, title: str):
@@ -396,7 +397,6 @@ def main():
     X_train, y_train = flatten_visit_features(train_df)
     X_test, y_test = flatten_visit_features(test_df)
     baseline_rows = []
-    baseline_predictions = {}
     for name, estimator in [
         ("majority_class", None),
         ("logistic_regression", make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
@@ -412,7 +412,6 @@ def main():
         else:
             estimator.fit(X_train, y_train)
             pred = estimator.predict(X_test)
-        baseline_predictions[name] = pred.tolist()
         baseline_rows.append({
             "model": name, "accuracy": float(accuracy_score(y_test, pred)),
             "macro_f1": float(f1_score(y_test, pred, average="macro", zero_division=0)),
