@@ -144,7 +144,7 @@ elif mode == "Run trained model":
                 visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
             with col_months:
                 time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
-            scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "mhd", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
+            scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
             st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
             grouped_fields = {
                 "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
