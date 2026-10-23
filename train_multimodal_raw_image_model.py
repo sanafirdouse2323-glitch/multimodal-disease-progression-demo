@@ -92,7 +92,7 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
     ]
     if not feature_cols:
         raise ValueError(
-            "For multimodal fusion, include at least one numeric feature column named with "
+            "For multimodal fusion, include at least one supported numeric or categorical feature column named with "
             "C_ (clinical), T_ (treatment), M_ (medicine), or W_ (wearable), or use a legacy "
             "column from the earlier template. Use train_raw_image_model.py for image-only training."
         )
@@ -162,7 +162,7 @@ def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFram
         unknown_name = f"{col}__unknown"
         columns = names + [unknown_name]
         for name in columns:
-            encoded[name] = np.nan if False else 0.0
+            encoded[name] = 0.0
         for row_index, value in raw.items():
             if pd.isna(value):
                 for name in columns:
