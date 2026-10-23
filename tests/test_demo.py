@@ -49,6 +49,17 @@ class DemoPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(float(means["lab1"]), float(train_mean))
         self.assertGreater(float(transformed_other["lab1"].iloc[0]), 1000.0)
 
+    def test_baseline_features_include_missingness_indicators(self):
+        patient_ids = sorted(self.raw["patient_id"].unique())
+        train = self.raw[self.raw.patient_id.isin(patient_ids[:10])].copy()
+        valid = self.raw[self.raw.patient_id.isin(patient_ids[10:])].copy()
+        transformed_train, transformed_valid = demo.prepare_features(train, valid)
+        features, labels = demo.flatten_visit_features(transformed_valid)
+        expected_feature_count = 2 * sum(len(cols) for cols in demo.GROUPS.values())
+        self.assertEqual(features.shape[1], expected_feature_count)
+        self.assertEqual(features.shape[0], len(labels))
+        self.assertTrue(np.isfinite(features).all())
+
     def test_collation_marks_padding_and_model_outputs_finite_logits(self):
         patient_ids = sorted(self.raw["patient_id"].unique())
         train = self.raw[self.raw.patient_id.isin(patient_ids[:12])].copy()
