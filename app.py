@@ -400,11 +400,23 @@ elif mode == "Run trained model":
                     "--output", str(output_path),
                     "--device", "cpu",
                 ]
+                # CPU inference on small 3D volumes can become dramatically slower when
+                # OpenMP/BLAS launch a thread per reported host core. Use a conservative
+                # default for this app-launched worker, while allowing deployments to tune it.
+                cpu_threads = os.environ.get("MULTIMODAL_CPU_THREADS", "1")
+                inference_env = {
+                    **os.environ,
+                    "CUDA_VISIBLE_DEVICES": "",
+                    "OMP_NUM_THREADS": cpu_threads,
+                    "MKL_NUM_THREADS": cpu_threads,
+                    "OPENBLAS_NUM_THREADS": cpu_threads,
+                    "NUMEXPR_NUM_THREADS": cpu_threads,
+                }
                 with st.spinner("Loading scans and running inference on CPU. This may take a while..."):
                     completed = subprocess.run(
                         command, capture_output=True, text=True, timeout=900, check=False,
                         cwd=str(Path(__file__).resolve().parent),
-                        env={**os.environ, "CUDA_VISIBLE_DEVICES": ""},
+                        env=inference_env,
                     )
                 if completed.returncode != 0:
                     st.error("Prediction failed. Review the diagnostic output below.")
