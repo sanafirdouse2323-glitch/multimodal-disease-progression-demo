@@ -1,575 +1,465 @@
+"""Synthetic multimodal longitudinal disease-stage demo.
+
+This is an educational portfolio project, not a clinical model. It predicts the
+current synthetic stage from information available at that visit and earlier
+visits. All data are generated locally; no patient data are used.
+"""
+from __future__ import annotations
+
+import json
 import random
+from pathlib import Path
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-from sklearn.metrics import accuracy_score, f1_score
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, classification_report, f1_score, ConfusionMatrixDisplay
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from torch.utils.data import DataLoader, Dataset
 
-# ----------------------------
-# Reproducibility
-# ----------------------------
-def set_seed(seed=42):
+SEED = 42
+OUTPUT_DIR = Path("results")
+CLINICAL_COLS = ["lab1", "lab2", "vitals", "meds", "comorbidities", "age", "bmi"]
+TREATMENT_COLS = ["treatment_flag", "time_since_treatment_start", "treatment_duration_days", "treatment_change"]
+MEDICINE_COLS = ["medicine_type", "dose_per_day", "frequency_per_day", "cumulative_exposure"]
+WEARABLE_COLS = ["steps", "sleep_hours", "heart_rate", "hrv", "activity"]
+IMAGING_COLS = ["imaging_score", "lesion_area", "atrophy_index", "tissue_change"]
+GROUPS = {
+    "clinical": CLINICAL_COLS,
+    "treatment": TREATMENT_COLS,
+    "medicine": MEDICINE_COLS,
+    "wearable": WEARABLE_COLS,
+    "imaging": IMAGING_COLS,
+}
+LABEL_COL = "stage"
+ID_COLS = ["patient_id", "visit_idx", "time_months", LABEL_COL]
+
+
+def set_seed(seed: int = SEED) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
 
-set_seed(42)
 
-# ----------------------------
-# Feature groups
-# ----------------------------
-CLINICAL_BASE_COLS = ["lab1", "lab2", "vitals", "meds", "comorbidities"]
-
-TREATMENT_COLS = [
-    "treatment_flag",
-    "time_since_treatment_start",
-    "treatment_duration_days",
-    "treatment_change",
-]
-
-MEDICINE_COLS = [
-    "medicine_type",
-    "dose_per_day",
-    "frequency_per_day",
-    "cumulative_exposure",
-]
-
-WEARABLE_COLS = ["steps", "sleep_hours", "heart_rate", "hrv", "activity"]
-IMAGING_COLS = ["imaging_score", "lesion_area", "atrophy_index", "tissue_change"]
-
-# ----------------------------
-# Synthetic data generation
-# ----------------------------
-def generate_demo_dataset(n_patients=500, seed=42):
+def generate_demo_dataset(n_patients: int = 500, seed: int = SEED) -> pd.DataFrame:
+    """Generate toy longitudinal data with non-uniform visits and missing values."""
     rng = np.random.default_rng(seed)
-    rows = []
+    rows: list[dict] = []
+    efficacy_by_type = {1: 0.025, 2: 0.035, 3: 0.045, 4: 0.055}
 
     for pid in range(n_patients):
         age = float(rng.uniform(45, 85))
+        bmi = float(np.clip(rng.normal(27, 4.5), 16, 45))
         sex = int(rng.integers(0, 2))
-        bmi = float(rng.normal(27.0, 4.5))
-        baseline_risk = float(rng.normal(0.0, 1.0))
-        progression_rate = float(rng.uniform(0.12, 0.9))
-        visit_count = int(rng.integers(3, 9))
+        baseline_risk = float(rng.normal(0, 0.65))
+        progression_rate = float(rng.uniform(0.10, 0.32))
+        n_visits = int(rng.integers(4, 9))
+        gaps = rng.uniform(1.0, 5.0, size=n_visits - 1)
+        visit_times = np.concatenate(([0.0], np.cumsum(gaps)))
 
-        visit_times = np.array([0.0])
-        if visit_count > 1:
-            gaps = rng.uniform(1.0, 7.0, size=visit_count - 1)
-            visit_times = np.concatenate([visit_times, np.cumsum(gaps)])
-        visit_times = np.round(visit_times, 1)
-
+        latent = baseline_risk
         on_treatment = False
-        treatment_start_time = None
+        treatment_start_month = None
         medicine_type = 0
         cumulative_exposure = 0.0
+        previous_treatment_flag = 0
 
         for visit_idx, months in enumerate(visit_times):
-            latent = baseline_risk + progression_rate * months + rng.normal(0.0, 0.7)
+            if visit_idx > 0:
+                elapsed = float(months - visit_times[visit_idx - 1])
+                # Disease evolves during the interval; an active treatment reduces
+                # the simulated drift. This is a toy data-generating rule only.
+                effect = efficacy_by_type.get(medicine_type, 0.0) if on_treatment else 0.0
+                latent += progression_rate * elapsed * (1.0 - effect) + rng.normal(0, 0.28)
 
-            treatment_flag = 0
-            medicine_type = 0
-            dose_per_day = 0.0
-            frequency_per_day = 0.0
-            time_since_treatment_start = 0.0
-            treatment_duration_days = 0.0
+            # Treatment initiation is more likely at higher simulated disease burden.
+            p_start = float(np.clip(0.08 + 0.22 / (1.0 + np.exp(-latent)), 0.05, 0.32))
             treatment_change = 0
-
-            if latent > -0.5:
-                p_start = 0.10 + 0.30 * min(1.0, max(0.0, (latent + 2.0) / 4.0))
-            else:
-                p_start = 0.05
-
-            if (not on_treatment) and (rng.random() < p_start):
+            if not on_treatment and rng.random() < p_start:
                 on_treatment = True
-                treatment_start_time = months
+                treatment_start_month = float(months)
                 medicine_type = int(rng.integers(1, 5))
-                treatment_flag = 1
                 treatment_change = 1
-            elif on_treatment:
-                treatment_flag = 1
-                if rng.random() < 0.15:
-                    medicine_type = int(rng.integers(1, 5))
-                    treatment_change = 1
-                else:
-                    medicine_type = medicine_type if medicine_type > 0 else 1
-
-            if on_treatment:
-                treatment_flag = 1
-
-                efficacy_by_type = {1: 0.8, 2: 1.0, 3: 1.25, 4: 1.6}
-                efficacy = efficacy_by_type.get(medicine_type, 1.0)
-
-                dose_per_day = 0.8 + 0.7 * medicine_type + 0.25 * rng.normal(0.0, 1.0)
-                dose_per_day = max(0.0, dose_per_day)
-
-                frequency_per_day = float(int(rng.integers(1, 4)))
-                time_since_treatment_start = months - treatment_start_time
-                treatment_duration_days = max(0.0, time_since_treatment_start * 30.0)
-
-                daily_exposure = dose_per_day * frequency_per_day
-                cumulative_exposure += daily_exposure
-
-                latent = latent - (
-                    efficacy * cumulative_exposure * (0.12 + 0.08 * np.log1p(treatment_duration_days + 1.0))
-                )
-
-            if on_treatment and rng.random() < 0.08:
+            elif on_treatment and rng.random() < 0.06:
+                # A treatment can stop; this avoids exposure continuing after stop.
                 on_treatment = False
-                treatment_start_time = None
+                treatment_start_month = None
                 medicine_type = 0
-                dose_per_day = 0.0
-                frequency_per_day = 0.0
-                time_since_treatment_start = 0.0
-                treatment_duration_days = 0.0
-                treatment_flag = 0
+                treatment_change = 1
+            elif on_treatment and rng.random() < 0.10:
+                medicine_type = int(rng.integers(1, 5))
+                treatment_change = 1
 
-            if latent < -1.5:
-                stage = 0
-            elif latent < -0.2:
-                stage = 1
-            elif latent < 1.2:
-                stage = 2
-            else:
-                stage = 3
+            treatment_flag = int(on_treatment)
+            dose_per_day = float(max(0.1, rng.normal(1.0 + 0.35 * medicine_type, 0.15))) if on_treatment else 0.0
+            frequency_per_day = float(rng.integers(1, 3)) if on_treatment else 0.0
+            time_since_start = max(0.0, float(months - treatment_start_month)) if on_treatment else 0.0
+            duration_days = time_since_start * 30.0
+            # Exposure is an accumulated proxy, not a clinically meaningful dose.
+            if visit_idx > 0 and on_treatment:
+                elapsed_days = float(months - visit_times[visit_idx - 1]) * 30.0
+                cumulative_exposure += dose_per_day * frequency_per_day * elapsed_days
+            elif not on_treatment:
+                cumulative_exposure = 0.0
 
-            lab1 = 82.0 + 12.0 * stage + rng.normal(0.0, 6.5)
-            lab2 = 5.0 + 2.2 * stage + rng.normal(0.0, 1.5)
-            vitals = 70.0 + 5.5 * stage + rng.normal(0.0, 5.0)
-            meds = int(max(0, rng.poisson(2 + stage)))
-            comorbidities = int(max(0, rng.poisson(1 + stage / 2)))
-
-            steps = max(1000, 9000 - 1400 * stage + rng.normal(0.0, 2000))
-            sleep_hours = max(4.0, 8.0 - 0.8 * stage + rng.normal(0.0, 1.2))
-            heart_rate = 68.0 + 7.0 * stage + rng.normal(0.0, 5.0)
-            hrv = 52.0 - 7.5 * stage + rng.normal(0.0, 8.0)
-            activity = max(0.0, min(1.0, 0.7 - 0.18 * stage + rng.normal(0.0, 0.18)))
-
-            imaging_score = 15.0 + 18.0 * stage + rng.normal(0.0, 5.0)
-            lesion_area = max(0.0, 3.0 + 6.0 * stage + rng.normal(0.0, 2.5))
-            atrophy_index = max(0.0, 0.15 + 0.25 * stage + rng.normal(0.0, 0.08))
-            tissue_change = max(0.0, 0.08 + 0.45 * stage + rng.normal(0.0, 0.12))
-
+            # Stage is derived from the continuous state; observed features are
+            # generated from the state with noise, not directly from the stage.
+            stage = int(np.digitize(latent, bins=[-0.65, 0.35, 1.45]))
+            noise = lambda sd: float(rng.normal(0.0, sd))
             row = {
-                "patient_id": pid,
-                "visit_idx": visit_idx,
-                "time_months": months,
-                "stage": stage,
-                "age": age,
-                "sex": sex,
-                "bmi": bmi,
-                "baseline_risk": baseline_risk,
-                "progression_rate": progression_rate,
-                "latent_score": latent,
-                "lab1": lab1,
-                "lab2": lab2,
-                "vitals": vitals,
-                "meds": meds,
-                "comorbidities": comorbidities,
+                "patient_id": pid, "visit_idx": visit_idx, "time_months": float(months),
+                "stage": stage, "age": age, "sex": sex, "bmi": bmi,
+                "lab1": 85 + 8.5 * latent + noise(7.0),
+                "lab2": 5.2 + 1.5 * latent + noise(1.8),
+                "vitals": 71 + 3.5 * latent + noise(5.5),
+                "meds": int(max(0, rng.poisson(max(0.2, 1.5 + 0.65 * latent)))),
+                "comorbidities": int(max(0, rng.poisson(max(0.2, 1.0 + 0.35 * latent)))),
                 "treatment_flag": treatment_flag,
-                "time_since_treatment_start": time_since_treatment_start,
-                "treatment_duration_days": treatment_duration_days,
+                "time_since_treatment_start": time_since_start,
+                "treatment_duration_days": duration_days,
                 "treatment_change": treatment_change,
                 "medicine_type": medicine_type,
                 "dose_per_day": dose_per_day,
                 "frequency_per_day": frequency_per_day,
                 "cumulative_exposure": cumulative_exposure,
-                "steps": steps,
-                "sleep_hours": sleep_hours,
-                "heart_rate": heart_rate,
-                "hrv": hrv,
-                "activity": activity,
-                "imaging_score": imaging_score,
-                "lesion_area": lesion_area,
-                "atrophy_index": atrophy_index,
-                "tissue_change": tissue_change,
+                "steps": float(max(500, 8500 - 850 * latent + noise(1700))),
+                "sleep_hours": float(np.clip(7.5 - 0.35 * latent + noise(1.0), 3, 12)),
+                "heart_rate": 69 + 4.2 * latent + noise(5.0),
+                "hrv": 50 - 4.5 * latent + noise(8.0),
+                "activity": float(np.clip(0.68 - 0.10 * latent + noise(0.16), 0, 1)),
+                "imaging_score": 18 + 12 * latent + noise(7.0),
+                "lesion_area": float(max(0, 4 + 3.2 * latent + noise(2.8))),
+                "atrophy_index": float(max(0, 0.18 + 0.12 * latent + noise(0.09))),
+                "tissue_change": float(max(0, 0.12 + 0.20 * latent + noise(0.14))),
             }
             rows.append(row)
+            previous_treatment_flag = treatment_flag
 
     df = pd.DataFrame(rows)
-
-    clinical_missing = 0.05 + 0.12 * df["stage"] / 3.0
-    wearable_missing = 0.08 + 0.18 * df["stage"] / 3.0
-    imaging_missing = 0.10 + 0.20 * df["stage"] / 3.0
-
-    for col in CLINICAL_BASE_COLS + TREATMENT_COLS + MEDICINE_COLS:
-        mask = rng.random(len(df)) < clinical_missing.to_numpy()
-        df.loc[mask, col] = np.nan
-
-    for col in WEARABLE_COLS:
-        mask = rng.random(len(df)) < wearable_missing.to_numpy()
-        df.loc[mask, col] = np.nan
-
-    for col in IMAGING_COLS:
-        mask = rng.random(len(df)) < imaging_missing.to_numpy()
-        df.loc[mask, col] = np.nan
-
+    # Missingness is generated independently of the target label in this demo.
+    # This keeps the toy missingness mechanism easy to explain.
+    for cols, rate in [
+        (CLINICAL_COLS, 0.08), (TREATMENT_COLS + MEDICINE_COLS, 0.05),
+        (WEARABLE_COLS, 0.18), (IMAGING_COLS, 0.15),
+    ]:
+        for col in cols:
+            missing = rng.random(len(df)) < rate
+            df.loc[missing, col] = np.nan
     return df
 
-# ----------------------------
-# Split by patient
-# ----------------------------
-def split_by_patient(df, valid_fraction=0.2, seed=42):
+
+def split_patient_ids(df: pd.DataFrame, seed: int = SEED):
+    ids = np.array(sorted(df["patient_id"].unique()))
     rng = np.random.default_rng(seed)
-    patient_ids = sorted(df["patient_id"].unique())
-    rng.shuffle(patient_ids)
-
-    split_idx = int(len(patient_ids) * (1.0 - valid_fraction))
-    train_ids = set(patient_ids[:split_idx])
-    valid_ids = set(patient_ids[split_idx:])
-
-    train_df = df[df["patient_id"].isin(train_ids)].copy()
-    valid_df = df[df["patient_id"].isin(valid_ids)].copy()
-    return train_df, valid_df
-
-# ----------------------------
-# Standardization
-# ----------------------------
-def compute_group_stats(train_df, cols):
-    stats = {}
-    for col in cols:
-        mean = train_df[col].mean()
-        std = train_df[col].std(ddof=0)
-        if pd.isna(std) or std < 1e-8:
-            std = 1.0
-        stats[col] = {"mean": mean, "std": std}
-    return stats
+    rng.shuffle(ids)
+    n = len(ids)
+    n_train = int(n * 0.70)
+    n_valid = int(n * 0.15)
+    train_ids = set(ids[:n_train])
+    valid_ids = set(ids[n_train:n_train + n_valid])
+    test_ids = set(ids[n_train + n_valid:])
+    return train_ids, valid_ids, test_ids
 
 
-def apply_standardization(df, stats):
-    for col, info in stats.items():
-        df[col] = (df[col] - info["mean"]) / info["std"]
-        df[col] = df[col].fillna(0.0)
-    return df
+def prepare_features(train_df: pd.DataFrame, other_df: pd.DataFrame):
+    """Fit imputation/scaling on training patients only; preserve missingness masks."""
+    train = train_df.copy()
+    other = other_df.copy()
+    feature_cols = [c for cols in GROUPS.values() for c in cols]
+    means = train[feature_cols].mean()
+    means = means.fillna(0.0)
+    stds = train[feature_cols].std(ddof=0).replace(0, 1.0).fillna(1.0)
 
-# ----------------------------
-# Sequence construction
-# ----------------------------
-def make_patient_sequences(df):
+    def transform(frame):
+        out = frame.copy()
+        for col in feature_cols:
+            # Masks are created from original NaNs before imputation.
+            out[f"{col}__observed"] = out[col].notna().astype(np.float32)
+            out[col] = ((out[col] - means[col]) / stds[col]).fillna(0.0)
+        return out
+    return transform(train), transform(other)
+
+
+def make_sequences(df: pd.DataFrame) -> list[dict]:
     sequences = []
-    for _, g in df.groupby("patient_id"):
-        g = g.sort_values("visit_idx").reset_index(drop=True)
-
-        clinical = g[CLINICAL_BASE_COLS].fillna(0.0).to_numpy(dtype=np.float32)
-        treatment = g[TREATMENT_COLS].fillna(0.0).to_numpy(dtype=np.float32)
-        medicine = g[MEDICINE_COLS].fillna(0.0).to_numpy(dtype=np.float32)
-        wearable = g[WEARABLE_COLS].fillna(0.0).to_numpy(dtype=np.float32)
-        imaging = g[IMAGING_COLS].fillna(0.0).to_numpy(dtype=np.float32)
-
-        clinical_mask = g[CLINICAL_BASE_COLS].notna().astype(float).to_numpy(dtype=np.float32)
-        treatment_mask = g[TREATMENT_COLS].notna().astype(float).to_numpy(dtype=np.float32)
-        medicine_mask = g[MEDICINE_COLS].notna().astype(float).to_numpy(dtype=np.float32)
-        wearable_mask = g[WEARABLE_COLS].notna().astype(float).to_numpy(dtype=np.float32)
-        imaging_mask = g[IMAGING_COLS].notna().astype(float).to_numpy(dtype=np.float32)
-
-        labels = g["stage"].to_numpy(dtype=np.int64)
-
-        sequences.append({
-            "clinical": clinical,
-            "clinical_mask": clinical_mask,
-            "treatment": treatment,
-            "treatment_mask": treatment_mask,
-            "medicine": medicine,
-            "medicine_mask": medicine_mask,
-            "wearable": wearable,
-            "wearable_mask": wearable_mask,
-            "imaging": imaging,
-            "imaging_mask": imaging_mask,
-            "label": labels,
-        })
+    for _, group in df.groupby("patient_id", sort=True):
+        group = group.sort_values("visit_idx")
+        item = {
+            "time": group["time_months"].to_numpy(dtype=np.float32),
+            "labels": group[LABEL_COL].to_numpy(dtype=np.int64),
+        }
+        for name, cols in GROUPS.items():
+            values = group[cols].to_numpy(dtype=np.float32)
+            masks = group[[f"{c}__observed" for c in cols]].to_numpy(dtype=np.float32)
+            item[name] = values
+            item[f"{name}_mask"] = masks
+        sequences.append(item)
     return sequences
 
-# ----------------------------
-# Dataset + collate
-# ----------------------------
-class PatientSequenceDataset(Dataset):
+
+class PatientDataset(Dataset):
     def __init__(self, sequences):
-        self.data = sequences
+        self.sequences = sequences
 
     def __len__(self):
-        return len(self.data)
+        return len(self.sequences)
 
-    def __getitem__(self, idx):
-        return self.data[idx]
+    def __getitem__(self, index):
+        return self.sequences[index]
 
 
-def collate_patient_sequences(batch):
-    max_len = max(item["clinical"].shape[0] for item in batch)
+def collate_sequences(batch):
+    max_len = max(len(item["labels"]) for item in batch)
+    result = {}
+    keys = list(GROUPS.keys()) + [f"{name}_mask" for name in GROUPS] + ["time", "labels"]
+    for key in keys:
+        arrays = []
+        for item in batch:
+            arr = item[key]
+            pad_shape = (max_len - len(arr),) + arr.shape[1:]
+            if key == "labels":
+                pad = np.full(pad_shape, -100, dtype=np.int64)
+            else:
+                pad = np.zeros(pad_shape, dtype=np.float32)
+            arrays.append(np.concatenate([arr, pad], axis=0))
+        dtype = torch.long if key == "labels" else torch.float32
+        result[key] = torch.as_tensor(np.stack(arrays), dtype=dtype)
+    result["padding_mask"] = result["labels"].eq(-100)
+    return result
 
-    clinical_list = []
-    clinical_mask_list = []
-    treatment_list = []
-    treatment_mask_list = []
-    medicine_list = []
-    medicine_mask_list = []
-    wearable_list = []
-    wearable_mask_list = []
-    imaging_list = []
-    imaging_mask_list = []
-    labels_list = []
 
-    def pad_2d(arr, pad_len):
-        if arr.shape[0] == pad_len:
-            return arr
-        pad = np.zeros((pad_len - arr.shape[0], arr.shape[1]), dtype=np.float32)
-        return np.concatenate([arr, pad], axis=0)
-
-    for item in batch:
-        seq_len = item["clinical"].shape[0]
-
-        clinical_list.append(pad_2d(item["clinical"].astype(np.float32), max_len))
-        clinical_mask_list.append(pad_2d(item["clinical_mask"].astype(np.float32), max_len))
-        treatment_list.append(pad_2d(item["treatment"].astype(np.float32), max_len))
-        treatment_mask_list.append(pad_2d(item["treatment_mask"].astype(np.float32), max_len))
-        medicine_list.append(pad_2d(item["medicine"].astype(np.float32), max_len))
-        medicine_mask_list.append(pad_2d(item["medicine_mask"].astype(np.float32), max_len))
-        wearable_list.append(pad_2d(item["wearable"].astype(np.float32), max_len))
-        wearable_mask_list.append(pad_2d(item["wearable_mask"].astype(np.float32), max_len))
-        imaging_list.append(pad_2d(item["imaging"].astype(np.float32), max_len))
-        imaging_mask_list.append(pad_2d(item["imaging_mask"].astype(np.float32), max_len))
-        labels_list.append(np.pad(item["label"], (0, max_len - seq_len), constant_values=-100))
-
-    return {
-        "clinical": torch.tensor(np.stack(clinical_list), dtype=torch.float32),
-        "clinical_mask": torch.tensor(np.stack(clinical_mask_list), dtype=torch.float32),
-        "treatment": torch.tensor(np.stack(treatment_list), dtype=torch.float32),
-        "treatment_mask": torch.tensor(np.stack(treatment_mask_list), dtype=torch.float32),
-        "medicine": torch.tensor(np.stack(medicine_list), dtype=torch.float32),
-        "medicine_mask": torch.tensor(np.stack(medicine_mask_list), dtype=torch.float32),
-        "wearable": torch.tensor(np.stack(wearable_list), dtype=torch.float32),
-        "wearable_mask": torch.tensor(np.stack(wearable_mask_list), dtype=torch.float32),
-        "imaging": torch.tensor(np.stack(imaging_list), dtype=torch.float32),
-        "imaging_mask": torch.tensor(np.stack(imaging_mask_list), dtype=torch.float32),
-        "labels": torch.tensor(np.stack(labels_list), dtype=torch.long),
-    }
-
-# ----------------------------
-# Model blocks
-# ----------------------------
-class ModalityEncoder(nn.Module):
-    def __init__(self, input_dim, hidden_dim):
+class MultimodalTemporalModel(nn.Module):
+    def __init__(self, hidden_dim=32, n_heads=4, n_classes=4):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+        self.encoders = nn.ModuleDict({
+            name: nn.Sequential(
+                nn.Linear(2 * len(cols), hidden_dim), nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
+            ) for name, cols in GROUPS.items()
+        })
+        self.fusion = nn.Linear(hidden_dim * len(GROUPS), hidden_dim)
+        self.time_encoder = nn.Sequential(nn.Linear(1, hidden_dim), nn.Tanh())
+        layer = nn.TransformerEncoderLayer(
+            d_model=hidden_dim, nhead=n_heads, dim_feedforward=hidden_dim * 2,
+            dropout=0.1, batch_first=True, norm_first=True
         )
-
-    def forward(self, x):
-        return self.net(x)
-
-
-class SeparateStreamTransformer(nn.Module):
-    def __init__(
-        self,
-        clinical_dim,
-        treatment_dim,
-        medicine_dim,
-        wearable_dim,
-        imaging_dim,
-        hidden_dim=32,
-        n_heads=4,
-        n_classes=4,
-    ):
-        super().__init__()
-
-        self.clinical_encoder = ModalityEncoder(clinical_dim, hidden_dim)
-        self.treatment_encoder = ModalityEncoder(treatment_dim, hidden_dim)
-        self.medicine_encoder = ModalityEncoder(medicine_dim, hidden_dim)
-        self.wearable_encoder = ModalityEncoder(wearable_dim, hidden_dim)
-        self.imaging_encoder = ModalityEncoder(imaging_dim, hidden_dim)
-
-        self.fusion = nn.Linear(hidden_dim * 5, hidden_dim)
-
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=hidden_dim,
-            nhead=n_heads,
-            dim_feedforward=hidden_dim * 2,
-            dropout=0.1,
-            activation="relu",
-            batch_first=True,
-        )
-        self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
+        self.temporal = nn.TransformerEncoder(layer, num_layers=2)
         self.classifier = nn.Linear(hidden_dim, n_classes)
 
-    def forward(self, clinical, clinical_mask, treatment, treatment_mask, medicine, medicine_mask, wearable, wearable_mask, imaging, imaging_mask):
-        c = self.clinical_encoder(clinical * clinical_mask)
-        t = self.treatment_encoder(treatment * treatment_mask)
-        m = self.medicine_encoder(medicine * medicine_mask)
-        w = self.wearable_encoder(wearable * wearable_mask)
-        i = self.imaging_encoder(imaging * imaging_mask)
+    def forward(self, batch):
+        encoded = []
+        for name in GROUPS:
+            # Keep values and observation indicators as separate model inputs.
+            encoded.append(self.encoders[name](torch.cat([batch[name], batch[f"{name}_mask"]], dim=-1)))
+        fused = self.fusion(torch.cat(encoded, dim=-1))
+        times = batch["time"].unsqueeze(-1)
+        # Scale time to a stable range; time is relative to each patient's first visit.
+        time_scale = times / 12.0
+        fused = fused + self.time_encoder(time_scale)
+        length = fused.size(1)
+        # Causal attention prevents visit t from using information from future visits.
+        causal_mask = torch.triu(
+            torch.ones(length, length, device=fused.device, dtype=torch.bool), diagonal=1
+        )
+        hidden = self.temporal(
+            fused, mask=causal_mask, src_key_padding_mask=batch["padding_mask"]
+        )
+        return self.classifier(hidden)
 
-        fused = torch.cat([c, t, m, w, i], dim=-1)
-        fused = self.fusion(fused)
 
-        out = self.transformer(fused)
-        logits = self.classifier(out)
-        return logits
+def move_batch(batch, device):
+    return {key: value.to(device) if torch.is_tensor(value) else value for key, value in batch.items()}
 
-# ----------------------------
-# Training
-# ----------------------------
-def train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3, device=None):
-    if device is None:
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    train_loader = DataLoader(
-        PatientSequenceDataset(train_sequences),
-        batch_size=batch_size,
-        shuffle=True,
-        collate_fn=collate_patient_sequences,
-    )
-    valid_loader = DataLoader(
-        PatientSequenceDataset(valid_sequences),
-        batch_size=batch_size,
-        shuffle=False,
-        collate_fn=collate_patient_sequences,
-    )
-
-    model = SeparateStreamTransformer(
-        clinical_dim=len(CLINICAL_BASE_COLS),
-        treatment_dim=len(TREATMENT_COLS),
-        medicine_dim=len(MEDICINE_COLS),
-        wearable_dim=len(WEARABLE_COLS),
-        imaging_dim=len(IMAGING_COLS),
-        hidden_dim=32,
-        n_heads=4,
-        n_classes=4,
-    ).to(device)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+def evaluate_torch_model(model, loader, device):
+    model.eval()
+    losses, all_y, all_pred = [], [], []
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    with torch.no_grad():
+        for batch in loader:
+            batch = move_batch(batch, device)
+            logits = model(batch)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), batch["labels"].reshape(-1))
+            losses.append(float(loss.item()))
+            valid = batch["labels"] != -100
+            all_y.extend(batch["labels"][valid].cpu().tolist())
+            all_pred.extend(logits.argmax(-1)[valid].cpu().tolist())
+    return {
+        "loss": float(np.mean(losses)) if losses else float("nan"),
+        "accuracy": float(accuracy_score(all_y, all_pred)),
+        "macro_f1": float(f1_score(all_y, all_pred, average="macro", zero_division=0)),
+        "y_true": all_y, "y_pred": all_pred,
+    }
 
-    best_val_loss = float("inf")
-    best_state = None
 
-    for epoch in range(epochs):
+def train_model(train_sequences, valid_sequences, device, epochs=18, batch_size=16, lr=1e-3):
+    train_loader = DataLoader(PatientDataset(train_sequences), batch_size=batch_size, shuffle=True,
+                              collate_fn=collate_sequences)
+    valid_loader = DataLoader(PatientDataset(valid_sequences), batch_size=batch_size, shuffle=False,
+                              collate_fn=collate_sequences)
+    model = MultimodalTemporalModel().to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
+    criterion = nn.CrossEntropyLoss(ignore_index=-100)
+    best_loss, best_state = float("inf"), None
+    history = []
+
+    for epoch in range(1, epochs + 1):
         model.train()
-        total_loss = 0.0
-
+        batch_losses = []
         for batch in train_loader:
-            clinical = batch["clinical"].to(device)
-            clinical_mask = batch["clinical_mask"].to(device)
-            treatment = batch["treatment"].to(device)
-            treatment_mask = batch["treatment_mask"].to(device)
-            medicine = batch["medicine"].to(device)
-            medicine_mask = batch["medicine_mask"].to(device)
-            wearable = batch["wearable"].to(device)
-            wearable_mask = batch["wearable_mask"].to(device)
-            imaging = batch["imaging"].to(device)
-            imaging_mask = batch["imaging_mask"].to(device)
-            labels = batch["labels"].to(device)
-
-            optimizer.zero_grad()
-
-            logits = model(
-                clinical, clinical_mask,
-                treatment, treatment_mask,
-                medicine, medicine_mask,
-                wearable, wearable_mask,
-                imaging, imaging_mask,
-            )
-
-            logits_flat = logits.reshape(-1, logits.size(-1))
-            labels_flat = labels.reshape(-1)
-
-            loss = criterion(logits_flat, labels_flat)
+            batch = move_batch(batch, device)
+            optimizer.zero_grad(set_to_none=True)
+            logits = model(batch)
+            loss = criterion(logits.reshape(-1, logits.size(-1)), batch["labels"].reshape(-1))
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=2.0)
             optimizer.step()
-            total_loss += loss.item()
+            batch_losses.append(float(loss.item()))
 
-        avg_train_loss = total_loss / max(1, len(train_loader))
-
-        model.eval()
-        val_loss = 0.0
-        all_pred = []
-        all_label = []
-
-        with torch.no_grad():
-            for batch in valid_loader:
-                clinical = batch["clinical"].to(device)
-                clinical_mask = batch["clinical_mask"].to(device)
-                treatment = batch["treatment"].to(device)
-                treatment_mask = batch["treatment_mask"].to(device)
-                medicine = batch["medicine"].to(device)
-                medicine_mask = batch["medicine_mask"].to(device)
-                wearable = batch["wearable"].to(device)
-                wearable_mask = batch["wearable_mask"].to(device)
-                imaging = batch["imaging"].to(device)
-                imaging_mask = batch["imaging_mask"].to(device)
-                labels = batch["labels"].to(device)
-
-                logits = model(
-                    clinical, clinical_mask,
-                    treatment, treatment_mask,
-                    medicine, medicine_mask,
-                    wearable, wearable_mask,
-                    imaging, imaging_mask,
-                )
-
-                logits_flat = logits.reshape(-1, logits.size(-1))
-                labels_flat = labels.reshape(-1)
-
-                loss = criterion(logits_flat, labels_flat)
-                val_loss += loss.item()
-
-                pred = logits.argmax(dim=-1)
-                valid_mask = labels != -100
-                all_pred.extend(pred[valid_mask].cpu().tolist())
-                all_label.extend(labels[valid_mask].cpu().tolist())
-
-        avg_val_loss = val_loss / max(1, len(valid_loader))
-        acc = accuracy_score(all_label, all_pred)
-        macro_f1 = f1_score(all_label, all_pred, average="macro", zero_division=0)
-
-        print(f"Epoch {epoch + 1:02d} | train_loss={avg_train_loss:.4f} | val_loss={avg_val_loss:.4f} | acc={acc:.4f} | macro_f1={macro_f1:.4f}")
-
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+        metrics = evaluate_torch_model(model, valid_loader, device)
+        row = {"epoch": epoch, "train_loss": float(np.mean(batch_losses)), "val_loss": metrics["loss"],
+               "val_accuracy": metrics["accuracy"], "val_macro_f1": metrics["macro_f1"]}
+        history.append(row)
+        print("Epoch {epoch:02d} | train_loss={train_loss:.4f} | val_loss={val_loss:.4f} | "
+              "val_accuracy={val_accuracy:.4f} | val_macro_f1={val_macro_f1:.4f}".format(**row))
+        if metrics["loss"] < best_loss:
+            best_loss = metrics["loss"]
+            best_state = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    return model
+    return model, history
 
-# ----------------------------
-# Main
-# ----------------------------
+
+def flatten_visit_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    cols = [c for group in GROUPS.values() for c in group]
+    return df[cols].to_numpy(dtype=np.float32), df[LABEL_COL].to_numpy(dtype=np.int64)
+
+
+def save_confusion_matrix(y_true, y_pred, path: Path, title: str):
+    fig, ax = plt.subplots(figsize=(5, 4))
+    ConfusionMatrixDisplay.from_predictions(y_true, y_pred, labels=[0, 1, 2, 3],
+                                            display_labels=["Stage 0", "Stage 1", "Stage 2", "Stage 3"],
+                                            cmap="Blues", colorbar=False, ax=ax)
+    ax.set_title(title)
+    fig.tight_layout()
+    fig.savefig(path, dpi=160)
+    plt.close(fig)
+
+
 def main():
-    print("Generating synthetic multimodal disease progression dataset...")
-    df = generate_demo_dataset(n_patients=500, seed=42)
+    set_seed(SEED)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    print("Generating synthetic multimodal longitudinal data...")
+    df = generate_demo_dataset(n_patients=500, seed=SEED)
+    train_ids, valid_ids, test_ids = split_patient_ids(df, seed=SEED)
+    train_raw = df[df.patient_id.isin(train_ids)].copy()
+    valid_raw = df[df.patient_id.isin(valid_ids)].copy()
+    test_raw = df[df.patient_id.isin(test_ids)].copy()
+    assert not (train_ids & valid_ids or train_ids & test_ids or valid_ids & test_ids)
 
-    train_df, valid_df = split_by_patient(df, valid_fraction=0.2, seed=42)
+    train_df, valid_df = prepare_features(train_raw, valid_raw)
+    # Apply exactly the same training-fitted statistics to test data.
+    # Recreate them explicitly here to avoid fitting anything on validation/test.
+    feature_cols = [c for cols in GROUPS.values() for c in cols]
+    means = train_raw[feature_cols].mean().fillna(0.0)
+    stds = train_raw[feature_cols].std(ddof=0).replace(0, 1.0).fillna(1.0)
+    test_df = test_raw.copy()
+    for col in feature_cols:
+        test_df[f"{col}__observed"] = test_df[col].notna().astype(np.float32)
+        test_df[col] = ((test_df[col] - means[col]) / stds[col]).fillna(0.0)
 
-    clinical_cols = CLINICAL_BASE_COLS + TREATMENT_COLS + MEDICINE_COLS
-    clinical_stats = compute_group_stats(train_df, clinical_cols)
-    wearable_stats = compute_group_stats(train_df, WEARABLE_COLS)
-    imaging_stats = compute_group_stats(train_df, IMAGING_COLS)
-
-    train_df = apply_standardization(train_df.copy(), clinical_stats)
-    valid_df = apply_standardization(valid_df.copy(), clinical_stats)
-
-    train_df = apply_standardization(train_df, wearable_stats)
-    valid_df = apply_standardization(valid_df, wearable_stats)
-
-    train_df = apply_standardization(train_df, imaging_stats)
-    valid_df = apply_standardization(valid_df, imaging_stats)
-
-    train_sequences = make_patient_sequences(train_df)
-    valid_sequences = make_patient_sequences(valid_df)
-
+    train_sequences, valid_sequences, test_sequences = map(
+        make_sequences, [train_df, valid_df, test_df]
+    )
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"Device: {device}; patients: train={len(train_ids)}, validation={len(valid_ids)}, test={len(test_ids)}")
 
-    print("\nTraining separate treatment and medicine Transformer model...")
-    train_model(train_sequences, valid_sequences, epochs=25, batch_size=16, lr=1e-3, device=device)
+    model, history = train_model(train_sequences, valid_sequences, device=device)
+    test_loader = DataLoader(PatientDataset(test_sequences), batch_size=16, shuffle=False,
+                             collate_fn=collate_sequences)
+    neural = evaluate_torch_model(model, test_loader, device)
+    pd.DataFrame(history).to_csv(OUTPUT_DIR / "training_history.csv", index=False)
 
-    print("\nModel training complete.")
-    print("This is a synthetic treatment-aware progression baseline for methodological development.")
+    # Simple same-visit baselines. Fit preprocessing/model only on training visits;
+    # patient-level split ensures no patient's visits cross partitions.
+    X_train, y_train = flatten_visit_features(train_df)
+    X_test, y_test = flatten_visit_features(test_df)
+    baseline_rows = []
+    baseline_predictions = {}
+    for name, estimator in [
+        ("majority_class", None),
+        ("logistic_regression", make_pipeline(SimpleImputer(strategy="median"), StandardScaler(),
+                                               LogisticRegression(max_iter=1000, class_weight="balanced"))),
+        ("random_forest", make_pipeline(SimpleImputer(strategy="median"),
+                                        RandomForestClassifier(n_estimators=250, min_samples_leaf=3,
+                                                               class_weight="balanced", random_state=SEED,
+                                                               n_jobs=-1))),
+    ]:
+        if estimator is None:
+            majority = int(pd.Series(y_train).mode().iloc[0])
+            pred = np.full_like(y_test, majority)
+        else:
+            estimator.fit(X_train, y_train)
+            pred = estimator.predict(X_test)
+        baseline_predictions[name] = pred.tolist()
+        baseline_rows.append({
+            "model": name, "accuracy": float(accuracy_score(y_test, pred)),
+            "macro_f1": float(f1_score(y_test, pred, average="macro", zero_division=0)),
+        })
+    baseline_rows.append({
+        "model": "multimodal_causal_transformer", "accuracy": neural["accuracy"],
+        "macro_f1": neural["macro_f1"],
+    })
+    pd.DataFrame(baseline_rows).to_csv(OUTPUT_DIR / "test_metrics.csv", index=False)
+
+    save_confusion_matrix(neural["y_true"], neural["y_pred"],
+                          OUTPUT_DIR / "transformer_confusion_matrix.png",
+                          "Transformer: held-out synthetic test set")
+    fig, ax = plt.subplots(figsize=(7, 4))
+    hist = pd.DataFrame(history)
+    ax.plot(hist["epoch"], hist["train_loss"], label="Training loss")
+    ax.plot(hist["epoch"], hist["val_loss"], label="Validation loss")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Cross-entropy loss")
+    ax.set_title("Training history")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig(OUTPUT_DIR / "training_curve.png", dpi=160)
+    plt.close(fig)
+
+    report = {
+        "seed": SEED, "n_patients": int(df.patient_id.nunique()),
+        "n_visits": int(len(df)), "split_patient_counts": {
+            "train": len(train_ids), "validation": len(valid_ids), "test": len(test_ids)
+        },
+        "test_metrics": baseline_rows,
+        "classification_report_transformer": classification_report(
+            neural["y_true"], neural["y_pred"], labels=[0, 1, 2, 3],
+            target_names=["stage_0", "stage_1", "stage_2", "stage_3"],
+            output_dict=True, zero_division=0
+        ),
+        "important_interpretation": (
+            "All records are synthetic. Metrics demonstrate code execution on this toy generator only; "
+            "they do not estimate clinical performance."
+        ),
+    }
+    (OUTPUT_DIR / "run_summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print("\nHeld-out test metrics (synthetic data only):")
+    print(pd.DataFrame(baseline_rows).to_string(index=False))
+    print(f"\nSaved metrics and plots in: {OUTPUT_DIR.resolve()}")
+    print("Reminder: these synthetic results are not evidence of clinical validity.")
+
 
 if __name__ == "__main__":
     main()
