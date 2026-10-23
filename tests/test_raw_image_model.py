@@ -7,7 +7,7 @@ import pandas as pd
 import torch
 
 from train_raw_image_model import (
-    Small3DCNN, normalize_volume, volume_to_tensor, split_by_patient,
+    Small3DCNN, normalize_volume, volume_to_tensor, fit_volume_to_cube, split_by_patient,
     read_medical_volume, validate_manifest,
 )
 
@@ -39,6 +39,34 @@ class RawImagePipelineTests(unittest.TestCase):
         )
         self.assertEqual(tuple(result.shape), (1, 16, 16, 16))
         self.assertTrue(torch.isfinite(result).all())
+
+    def test_center_crop_and_pad_do_not_stretch_axes(self):
+        volume = np.ones((2, 4, 6), dtype=np.float32)
+        result = fit_volume_to_cube(volume, 4)
+        self.assertEqual(result.shape, (4, 4, 4))
+        self.assertTrue(np.all(result[1:3, :, :] == 1.0))
+        self.assertTrue(np.all(result[0, :, :] == 0.0))
+        self.assertTrue(np.all(result[3, :, :] == 0.0))
+
+    def test_spacing_aware_resampling(self):
+        import SimpleITK as sitk
+        original = np.ones((8, 10, 12), dtype=np.float32)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "spaced_volume.nii.gz"
+            image = sitk.GetImageFromArray(original)
+            image.SetSpacing((2.0, 1.0, 1.0))
+            sitk.WriteImage(image, str(path))
+            loaded = read_medical_volume(str(path), target_spacing_mm=1.0)
+            self.assertEqual(loaded.shape, (8, 10, 24))
+            self.assertTrue(np.isfinite(loaded).all())
+
+    def test_invalid_target_spacing_rejected(self):
+        import SimpleITK as sitk
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "volume.nii.gz"
+            sitk.WriteImage(sitk.GetImageFromArray(np.ones((3, 3, 3), dtype=np.float32)), str(path))
+            with self.assertRaises(ValueError):
+                read_medical_volume(str(path), target_spacing_mm=0)
 
     def test_3d_cnn_output_shape(self):
         model = Small3DCNN(n_classes=4)
