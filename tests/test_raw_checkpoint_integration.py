@@ -118,17 +118,19 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
             # This is a browser smoke/integration test, not an exhaustive usability audit.
             import os
             import time
-            from playwright.sync_api import sync_playwright
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
             env = os.environ.copy()
             env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+            app_log_path = work / "streamlit_app.log"
+            app_log_handle = app_log_path.open("w", encoding="utf-8")
             app_process = subprocess.Popen(
                 [
                     sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"),
                     "--server.headless=true", "--server.port=8765",
                     "--browser.gatherUsageStats=false",
                 ],
-                cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                cwd=ROOT, env=env, stdout=app_log_handle, stderr=subprocess.STDOUT,
             )
             try:
                 with sync_playwright() as playwright:
@@ -192,25 +194,40 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # Stop on either a success or a visible application-level error.
                     # This avoids waiting the full inference timeout when the UI has
                     # already rendered a useful diagnostic.
-                    page.wait_for_function(
-                        """() => {
-                            const body = document.body.innerText;
-                            return body.includes("Prediction completed for 2 visit(s).")
-                                || body.includes("Prediction failed.")
-                                || body.includes("Could not run inference:")
-                                || body.includes("Some image_path entries do not match files in the ZIP")
-                                || body.includes("Manifest is missing required columns")
-                                || body.includes("The manifest contains no rows.")
-                                || body.includes("Archive contains an unsafe path")
-                                || body.includes("The scan archive is not a valid ZIP file.");
-                        }""",
-                        timeout=180_000,
-                    )
+                    try:
+                        page.wait_for_function(
+                            """() => {
+                                const body = document.body.innerText;
+                                return body.includes("Prediction completed for 2 visit(s).")
+                                    || body.includes("Prediction failed.")
+                                    || body.includes("The prediction process ended without creating an output CSV.")
+                                    || body.includes("Could not run inference:")
+                                    || body.includes("Some image_path entries do not match files in the ZIP")
+                                    || body.includes("Manifest is missing required columns")
+                                    || body.includes("The manifest contains no rows.")
+                                    || body.includes("Archive contains an unsafe path")
+                                    || body.includes("The scan archive is not a valid ZIP file.");
+                            }""",
+                            timeout=60_000,
+                        )
+                    except PlaywrightTimeoutError as exc:
+                        visible_text = page.locator("body").inner_text()
+                        app_log_handle.flush()
+                        try:
+                            app_log_text = app_log_path.read_text(encoding="utf-8", errors="replace")
+                        except OSError as log_error:
+                            app_log_text = f"Could not read Streamlit log: {log_error}"
+                        raise AssertionError(
+                            "Guided inference produced no success or error within 60 seconds. "
+                            "Visible UI:\\n" + visible_text[-8000:]
+                            + "\\nStreamlit server log:\\n" + app_log_text[-12000:]
+                        ) from exc
+
                     visible_text = page.locator("body").inner_text()
                     self.assertIn(
                         "Prediction completed for 2 visit(s).",
                         visible_text,
-                        msg="Guided Streamlit inference did not complete. Visible UI:\\n" + visible_text[-8000:],
+                        msg="Guided Streamlit inference returned an app error. Visible UI:\\n" + visible_text[-8000:],
                     )
                     page.get_by_text("P001", exact=False).wait_for()
                     browser.close()
@@ -221,6 +238,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                 except subprocess.TimeoutExpired:
                     app_process.kill()
                     app_process.wait(timeout=5)
+                app_log_handle.close()
 
 
 if __name__ == "__main__":
