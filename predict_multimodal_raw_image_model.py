@@ -49,14 +49,29 @@ def prepare_prediction_manifest(frame: pd.DataFrame, base_dir: Path, checkpoint:
     frame["time_months"] = times.astype(float)
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
-    feature_cols = checkpoint["feature_columns"]
-    for col in feature_cols:
-        if col not in frame.columns:
-            frame[col] = np.nan
-        frame[col] = pd.to_numeric(frame[col], errors="raise")
-        vals = frame[col].dropna().to_numpy(dtype=float)
-        if not np.isfinite(vals).all():
-            raise ValueError(f"Feature {col!r} contains infinite values.")
+    schema = checkpoint.get("feature_schema")
+    if schema:
+        raw_feature_cols = list(schema["numeric_columns"]) + list(schema["categorical_categories"].keys())
+        for col in raw_feature_cols:
+            if col not in frame.columns:
+                frame[col] = np.nan
+        for col in schema["numeric_columns"]:
+            frame[col] = pd.to_numeric(frame[col], errors="raise")
+            vals = frame[col].dropna().to_numpy(dtype=float)
+            if not np.isfinite(vals).all():
+                raise ValueError(f"Feature {col!r} contains infinite values.")
+        for col in schema["categorical_categories"]:
+            frame[col] = frame[col].astype("string").str.strip().replace("", pd.NA)
+    else:
+        # Backward compatibility with checkpoints trained before categorical encoding.
+        feature_cols = checkpoint["feature_columns"]
+        for col in feature_cols:
+            if col not in frame.columns:
+                frame[col] = np.nan
+            frame[col] = pd.to_numeric(frame[col], errors="raise")
+            vals = frame[col].dropna().to_numpy(dtype=float)
+            if not np.isfinite(vals).all():
+                raise ValueError(f"Feature {col!r} contains infinite values.")
     def resolve_path(value):
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
@@ -66,7 +81,11 @@ def prepare_prediction_manifest(frame: pd.DataFrame, base_dir: Path, checkpoint:
             raise FileNotFoundError(f"Image path in prediction manifest does not exist: {path}")
     # Dummy labels are used only to reuse the sequence batcher; predictions ignore them.
     frame["stage"] = 0
-    return frame.sort_values(["patient_id", "visit_idx"]).reset_index(drop=True)
+    frame = frame.sort_values(["patient_id", "visit_idx"]).reset_index(drop=True)
+    if schema:
+        from train_multimodal_raw_image_model import encode_feature_frame
+        frame, _ = encode_feature_frame(frame, schema)
+    return frame
 
 
 def main():
