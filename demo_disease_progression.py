@@ -27,7 +27,7 @@ from torch.utils.data import DataLoader, Dataset
 
 SEED = 42
 OUTPUT_DIR = Path("results")
-CLINICAL_COLS = ["lab1", "lab2", "vitals", "meds", "comorbidities", "age", "bmi"]
+CLINICAL_COLS = ["lab1", "lab2", "vitals", "meds", "comorbidities", "age", "sex", "bmi"]
 TREATMENT_COLS = ["treatment_flag", "time_since_treatment_start", "treatment_duration_days", "treatment_change"]
 MEDICINE_COLS = ["medicine_type", "dose_per_day", "frequency_per_day", "cumulative_exposure"]
 WEARABLE_COLS = ["steps", "sleep_hours", "heart_rate", "hrv", "activity"]
