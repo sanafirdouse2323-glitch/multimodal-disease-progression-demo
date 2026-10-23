@@ -188,6 +188,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
+                    page.get_by_text("P000_v0.nii.gz", exact=True).wait_for(timeout=20_000)
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     page.get_by_text("Medicine features", exact=True).click()
                     textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
@@ -199,9 +200,21 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("1")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
+                    page.get_by_text("P000_v1.nii.gz", exact=True).wait_for(timeout=20_000)
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     page.get_by_text("Medicine features", exact=True).click()
-                    textbox("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
+                    medicine_box = textbox("M_medicine_name (category/text; leave blank if unavailable)")
+                    medicine_box.fill("PreviouslyUnseenCategory")
+                    self.assertEqual(
+                        textbox("Pseudonymous patient ID (same ID for the same person across visits)").input_value(),
+                        "P001",
+                        "Follow-up patient ID was not retained in the browser control.",
+                    )
+                    self.assertEqual(
+                        medicine_box.input_value(),
+                        "PreviouslyUnseenCategory",
+                        "Follow-up medicine category was not retained in the browser control.",
+                    )
                     # Verify that the browser has the intended follow-up values and file
                     # before submitting the Streamlit form; failures here are easier to
                     # diagnose than an ambiguous stale success message.
