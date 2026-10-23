@@ -89,6 +89,15 @@ elif mode == "Run trained model":
         "and a ZIP archive containing the scans at the relative paths referenced by that CSV."
     )
 
+    if "guided_visits" not in st.session_state:
+        st.session_state.guided_visits = []
+    if "guided_form_version" not in st.session_state:
+        st.session_state.guided_form_version = 0
+    if "guided_manifest_bytes" not in st.session_state:
+        st.session_state.guided_manifest_bytes = None
+    if "guided_zip_bytes" not in st.session_state:
+        st.session_state.guided_zip_bytes = None
+
     checkpoint_file = st.file_uploader("Model checkpoint (.pt)", type=["pt"], key="guided_checkpoint")
     checkpoint_metadata = None
     raw_feature_fields = []
@@ -124,15 +133,6 @@ elif mode == "Run trained model":
         except Exception as exc:
             st.error(f"Could not read checkpoint metadata safely: {type(exc).__name__}: {exc}")
             checkpoint_metadata = None
-
-    if "guided_visits" not in st.session_state:
-        st.session_state.guided_visits = []
-    if "guided_form_version" not in st.session_state:
-        st.session_state.guided_form_version = 0
-    if "guided_manifest_bytes" not in st.session_state:
-        st.session_state.guided_manifest_bytes = None
-    if "guided_zip_bytes" not in st.session_state:
-        st.session_state.guided_zip_bytes = None
 
     st.markdown("### Guided entry: add one scan visit at a time")
     st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
@@ -174,6 +174,8 @@ elif mode == "Run trained model":
             pid = patient_id_input.strip()
             if not pid:
                 st.error("Enter a pseudonymous patient ID.")
+            elif int(visit_idx_input) == 0 and float(time_months_input) != 0.0:
+                st.error("For baseline visit index 0, months since baseline must be 0.")
             elif scan_upload is None:
                 st.error("Attach the scan for this visit.")
             elif any(str(v["patient_id"]) == pid and int(v["visit_idx"]) == int(visit_idx_input) for v in st.session_state.guided_visits):
@@ -233,6 +235,8 @@ elif mode == "Run trained model":
                         errors.append(f"Missing scan path for patient {key[0]}, visit {key[1]}.")
                     pid = str(row["patient_id"])
                     current_time = float(row["time_months"])
+                    if int(row["visit_idx"]) == 0 and current_time != 0.0:
+                        errors.append(f"Baseline visit for patient {pid} must have months since baseline set to 0.")
                     if pid in previous_times and current_time < previous_times[pid]:
                         errors.append(f"Months since baseline must not decrease across visits for patient {pid}.")
                     previous_times[pid] = current_time
