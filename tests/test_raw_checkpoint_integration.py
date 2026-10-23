@@ -146,7 +146,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                             time.sleep(1)
 
                     page.get_by_text("Choose a view").wait_for()
-                    page.get_by_label("Run trained model").check()
+                    page.get_by_role("radio", name="Run trained model").check()
                     page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
                     file_inputs = page.locator('input[type="file"]')
                     file_inputs.nth(0).set_input_files(str(checkpoint_path))
@@ -177,9 +177,9 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     page.get_by_role("button", name="Download prepared manifest CSV").wait_for()
                     page.get_by_role("button", name="Download prepared scan ZIP").wait_for()
 
-                    page.get_by_label("Input source").get_by_text("Use guided entries above").click()
+                    page.get_by_role("radio", name="Use guided entries above").check()
                     page.get_by_role("button", name="Run prediction").click(timeout=10_000)
-                    page.get_by_text("Prediction results", exact=False).wait_for(timeout=180_000)
+                    page.get_by_text("Prediction completed for 2 visit(s).", exact=True).wait_for(timeout=180_000)
                     page.get_by_text("P001", exact=False).wait_for()
                     browser.close()
             finally:
