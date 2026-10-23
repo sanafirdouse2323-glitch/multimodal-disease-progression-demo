@@ -21,8 +21,12 @@ jobs:
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
+      - name: Compile application and inference scripts
+        run: python -m py_compile app.py predict_multimodal_raw_image_model.py train_multimodal_raw_image_model.py
       - name: Run unit and smoke tests
         run: python -m unittest discover -s tests -v
+      - name: Exercise training checkpoint and end-to-end prediction
+        run: python -m unittest discover -s tests -p 'test_raw_checkpoint_integration.py' -v
       - name: Run complete synthetic demo
         run: python demo_disease_progression.py
       - name: Upload generated results
