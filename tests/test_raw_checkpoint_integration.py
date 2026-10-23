@@ -113,6 +113,83 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
             self.assertTrue(np.isfinite(probabilities).all())
             self.assertTrue(np.allclose(probabilities.sum(axis=1), 1.0, atol=1e-5))
 
+            # Exercise the actual Streamlit UI in Chromium: upload the trained checkpoint,
+            # add two visits through the guided form, prepare CSV+ZIP, and run inference.
+            # This is a browser smoke/integration test, not an exhaustive usability audit.
+            import os
+            import time
+            from playwright.sync_api import sync_playwright
+
+            env = os.environ.copy()
+            env["STREAMLIT_BROWSER_GATHER_USAGE_STATS"] = "false"
+            app_process = subprocess.Popen(
+                [
+                    sys.executable, "-m", "streamlit", "run", str(ROOT / "app.py"),
+                    "--server.headless=true", "--server.port=8765",
+                    "--browser.gatherUsageStats=false",
+                ],
+                cwd=ROOT, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+            )
+            try:
+                with sync_playwright() as playwright:
+                    browser = playwright.chromium.launch()
+                    page = browser.new_page()
+                    page.set_default_timeout(20_000)
+                    deadline = time.time() + 60
+                    while True:
+                        try:
+                            page.goto("http://127.0.0.1:8765", wait_until="domcontentloaded", timeout=3000)
+                            break
+                        except Exception:
+                            if time.time() >= deadline:
+                                raise
+                            time.sleep(1)
+
+                    page.get_by_text("Choose a view").wait_for()
+                    page.get_by_label("Run trained model").check()
+                    page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
+                    file_inputs = page.locator('input[type="file"]')
+                    file_inputs.nth(0).set_input_files(str(checkpoint_path))
+                    page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
+
+                    # Baseline visit.
+                    page.get_by_label("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
+                    page.get_by_label("Visit order (baseline = 0, next = 1, ...)").fill("0")
+                    page.get_by_label("Months since baseline (baseline = 0)").fill("0")
+                    page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v0.nii.gz"))
+                    page.get_by_label("C_age (number; leave blank if unavailable)").fill("30")
+                    page.get_by_label("M_medicine_name (category/text; leave blank if unavailable)").fill("MedicineA")
+                    page.get_by_role("button", name="Add this visit to the review table").click()
+                    page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
+
+                    # Follow-up visit. The app re-renders the form with a new key after add.
+                    page.get_by_label("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
+                    page.get_by_label("Visit order (baseline = 0, next = 1, ...)").fill("1")
+                    page.get_by_label("Months since baseline (baseline = 0)").fill("6")
+                    page.locator('input[type="file"]').nth(1).set_input_files(str(scans / "P000_v1.nii.gz"))
+                    page.get_by_label("C_age (number; leave blank if unavailable)").fill("30")
+                    page.get_by_label("M_medicine_name (category/text; leave blank if unavailable)").fill("PreviouslyUnseenCategory")
+                    page.get_by_role("button", name="Add this visit to the review table").click()
+                    page.get_by_text("Visit added.", exact=False).wait_for(timeout=20_000)
+
+                    page.get_by_role("button", name="Validate and prepare manifest + scan ZIP").click()
+                    page.get_by_text("Files prepared.", exact=False).wait_for(timeout=20_000)
+                    page.get_by_role("button", name="Download prepared manifest CSV").wait_for()
+                    page.get_by_role("button", name="Download prepared scan ZIP").wait_for()
+
+                    page.get_by_label("Input source").get_by_text("Use guided entries above").click()
+                    page.get_by_role("button", name="Run prediction").click(timeout=10_000)
+                    page.get_by_text("Prediction results", exact=False).wait_for(timeout=180_000)
+                    page.get_by_text("P001", exact=False).wait_for()
+                    browser.close()
+            finally:
+                app_process.terminate()
+                try:
+                    app_process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    app_process.kill()
+                    app_process.wait(timeout=5)
+
 
 if __name__ == "__main__":
     unittest.main()
