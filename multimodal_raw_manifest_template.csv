@@ -1,0 +1,1 @@
+patient_id,image_path,stage,visit_idx,time_months,lab1,lab2,vitals,meds,comorbidities,age,sex,bmi,treatment_flag,time_since_treatment_start,treatment_duration_days,treatment_change,medicine_type,dose_per_day,frequency_per_day,cumulative_exposure,steps,sleep_hours,heart_rate,hrv,activity

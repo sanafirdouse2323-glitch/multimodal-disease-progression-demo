@@ -93,6 +93,12 @@ python -m unittest discover -s tests -v
 - The current task is stage classification, not survival analysis or future progression forecasting.
 - A single seeded run is for demonstration; stronger evaluation would require repeated seeds and real datasets with appropriate access, governance, and outcome definitions.
 
+## Direct raw CT/MRI image input (research starter)
+
+An optional 3D CNN starter can read raw 3D NIfTI scans (`.nii`, `.nii.gz`) or a directory containing one DICOM series, instead of requiring hand-crafted imaging feature columns. It reorients scans to LPS and resamples them to configurable isotropic spacing before center crop/padding to a fixed input shape. It requires a manifest containing verified `patient_id`, `image_path`, and integer `stage` labels (0–3). It predicts the supplied label from each scan; it does not generate labels and it is not clinically validated.
+
+See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, preprocessing, and limitations. For longitudinal multimodal fusion, `train_multimodal_raw_image_model.py` combines raw scan embeddings from a 3D CNN with available clinical, treatment, medicine, and wearable numeric features and their missingness masks, then applies a causal Transformer across visits. Start from [multimodal_raw_manifest_template.csv](multimodal_raw_manifest_template.csv); see the guide for exact columns and a smoke-run command. A companion `predict_multimodal_raw_image_model.py` CLI loads the saved checkpoint and writes per-visit stage probabilities. This is a research baseline and has not been clinically validated.
+
 ## License
 
 No open-source license has been selected yet. Until one is added, do not assume the repository is licensed for reuse beyond rights granted by applicable law.
