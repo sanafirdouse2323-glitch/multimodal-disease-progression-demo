@@ -55,7 +55,7 @@ The script writes a model checkpoint, training history and run summary to `raw_i
 - `--modality mri`: uses the same generic per-volume percentile policy as a basic starting point; MRI protocols can require more careful bias-field correction, registration, or normalization.
 - `--modality ct`: clips to the configured intensity window, then standardizes. Example command: `python train_raw_image_model.py --manifest raw_images_manifest.csv --modality ct --ct-window-low -1000 --ct-window-high 1000`. This window is only an example, not a universal CT setting; choose bounds based on anatomy and task and confirm pixel values are in Hounsfield units.
 
-**Important:** the current starter resizes the voxel array to a fixed cube without resampling in physical space. This can distort anatomy when scan dimensions or voxel spacing differ. Before scientific use, implement and validate modality-appropriate orientation handling, spacing-aware resampling, and protocol-specific preprocessing. Do not treat this default pipeline as clinically validated.
+**Physical-space preprocessing:** the loader reorients volumes to LPS and, by default, linearly resamples them to isotropic 1.5 mm voxels before converting them to a fixed-size input. Set this with `--target-spacing-mm` (for example, `--target-spacing-mm 2.0`). After intensity normalization, it center-crops or pads each axis to the requested cube; it does not stretch each axis independently. This can still crop anatomy or add background, and the target spacing/field of view must be selected for the anatomy and task. Check image orientation, origin, spacing, pixel-value conventions and the resulting field of view on your dataset before training.
 
 ## Run in Google Colab
 
@@ -72,7 +72,7 @@ Do not upload identifiable patient images to a personal notebook or Drive unless
 - This is a small 3D CNN baseline, not a clinical tool and not a validated diagnostic model.
 - It predicts the supplied stage label from one scan at a time. It does **not yet fuse raw image embeddings with the existing clinical, wearable, medicine, treatment and temporal Transformer branches**.
 - The default per-volume intensity normalization is generic. CT Hounsfield-unit windowing, MRI-specific intensity handling, orientation, voxel spacing, resampling and scanner/site differences need modality-specific review.
-- Resizing volumes to a fixed cube can discard anatomical detail. A domain-appropriate preprocessing protocol should be chosen and documented.
+- Isotropic resampling and center crop/padding improve geometric consistency but do not guarantee that the same anatomy is present in every input. Inspect the field of view and potential cropping for the target task.
 - A patient-level split prevents scans from the same listed patient appearing across partitions, but does not address all confounding, site leakage, label errors, or distribution shift.
 - The script does not create segmentation masks or extract lesion-specific features.
 - No performance claim can be made until it has been run and evaluated on a permitted, correctly labelled dataset.
