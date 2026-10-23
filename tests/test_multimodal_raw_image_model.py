@@ -15,6 +15,7 @@ from train_multimodal_raw_image_model import (
     RawImageTemporalFusionModel, collate_sequences, main, make_sequences,
     fit_feature_stats, validate_manifest,
 )
+from predict_multimodal_raw_image_model import main as predict_main
 
 
 class RawImageTemporalFusionTests(unittest.TestCase):
@@ -88,6 +89,25 @@ class RawImageTemporalFusionTests(unittest.TestCase):
             self.assertEqual(summary["n_patients"], 10)
             self.assertIn("macro_f1", summary["test_metrics"])
             self.assertTrue((output / "training_history.csv").is_file())
+
+            prediction_manifest = root / "prediction_manifest.csv"
+            pd.DataFrame(rows).drop(columns=["stage"]).to_csv(prediction_manifest, index=False)
+            prediction_path = root / "predictions.csv"
+            predict_argv = [
+                "predict_multimodal_raw_image_model.py",
+                "--checkpoint", str(output / "multimodal_raw_model.pt"),
+                "--manifest", str(prediction_manifest),
+                "--output", str(prediction_path),
+                "--batch-size", "2",
+                "--device", "cpu",
+            ]
+            with patch("sys.argv", predict_argv), contextlib.redirect_stdout(io.StringIO()):
+                predict_main()
+            predictions = pd.read_csv(prediction_path)
+            self.assertEqual(len(predictions), 10)
+            self.assertTrue(predictions["predicted_stage"].isin([0, 1, 2, 3]).all())
+            probability_cols = [f"prob_stage_{i}" for i in range(4)]
+            np.testing.assert_allclose(predictions[probability_cols].sum(axis=1), 1.0, atol=1e-5)
 
 
 if __name__ == "__main__":
