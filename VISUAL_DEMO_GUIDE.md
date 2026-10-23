@@ -19,6 +19,28 @@ Streamlit prints a local URL (usually `http://localhost:8501`). Open it in your 
 - **Run trained model:** runs inference using a real checkpoint created by `train_multimodal_raw_image_model.py`, a prediction CSV, and a ZIP archive containing the corresponding scan files.
 - **About the model:** explains the architecture, task, and limitations.
 
+## Preparing the prediction manifest (CSV)
+
+The app provides a downloadable example CSV under **Run trained model → New to CSV files? Start here**. Open it in Excel or LibreOffice, replace the placeholder values, and save/export it as CSV.
+
+Use **one row per patient visit and scan**:
+
+- `patient_id`: pseudonymous identifier. Reuse it across that patient's visits; do not put names or direct identifiers here.
+- `image_path`: relative path to the scan inside the ZIP archive, such as `scans/P001/visit0.nii.gz`.
+- `visit_idx`: visit order for each patient (baseline `0`, next visit `1`, then `2`, etc.).
+- `time_months`: optional months since baseline (baseline `0`, then for example `6` and `12`). If omitted, the prediction script falls back to `visit_idx`; this fallback is an ordering convenience, not a real elapsed-time measurement.
+
+The template shows examples of feature columns: `C_` clinical, `T_` treatment, `M_` medicine, and `W_` wearable. These are examples, not a required universal list. Feature names and their meaning must match the schema used to train the checkpoint. Include the columns the model was trained with; unavailable values can be left blank, but do not invent measurements or category values. The prediction script fills missing expected feature columns as unavailable.
+
+Example for a patient with two visits:
+
+| patient_id | image_path | visit_idx | time_months |
+|---|---|---:|---:|
+| P001 | scans/P001/visit0.nii.gz | 0 | 0 |
+| P001 | scans/P001/visit1.nii.gz | 1 | 6 |
+
+The example identifiers and paths are placeholders. Each referenced scan must exist at the exact relative path inside the ZIP. The same patient should not have duplicate rows for the same `visit_idx`.
+
 ## Running real inference in the app
 
 1. Train the multimodal model on an authorised, correctly labelled dataset. The checkpoint is usually `multimodal_raw_results/multimodal_raw_model.pt` (depending on the training output directory).
