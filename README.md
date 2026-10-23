@@ -99,6 +99,10 @@ An optional 3D CNN starter can read raw 3D NIfTI scans (`.nii`, `.nii.gz`) or a 
 
 See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, preprocessing, and limitations. For longitudinal multimodal fusion, `train_multimodal_raw_image_model.py` combines raw scan embeddings from a 3D CNN with clinical, treatment, medicine, and wearable features. Numeric measurements are standardized, and categorical text such as sex or medicine names is automatically one-hot encoded using categories learned from training patients only. Missingness masks are retained before a causal Transformer processes visits. Start from [multimodal_raw_manifest_template.csv](multimodal_raw_manifest_template.csv); see the guide for exact columns and a smoke-run command. A companion `predict_multimodal_raw_image_model.py` CLI loads the saved checkpoint and writes per-visit stage probabilities. This is a research baseline and has not been clinically validated.
 
+## Visual interactive interface
+
+A Streamlit web interface is available in `app.py`. Run `python -m pip install -r requirements.txt` followed by `streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
+
 ## License
 
 No open-source license has been selected yet. Until one is added, do not assume the repository is licensed for reuse beyond rights granted by applicable law.
