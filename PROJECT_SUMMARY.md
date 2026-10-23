@@ -1,9 +1,21 @@
 # Project Summary
 
-Disease progression is a longitudinal process shaped by multiple interacting signals, including clinical measurements, wearable-derived physiology, and imaging-derived structural changes. In chronic diseases, progression is rarely determined by a single modality alone; instead, it emerges from the combined dynamics of biological, behavioural, and clinical information over time. This project proposes a multimodal framework for modelling disease progression from imaging, wearable, and clinical data, with explicit consideration of irregular follow-up, missing observations, and evolving treatment exposure.
+This repository is a small Python/PyTorch portfolio demonstration for a PhD application in machine learning in medicine. It uses **synthetic data only** to demonstrate data preparation, multimodal feature integration, longitudinal sequence modelling, training, and evaluation.
 
-The project focuses on a realistic problem setting in which patients are observed across multiple visits with non-uniform timing and incomplete data. The methodological goal is to learn a patient-specific latent disease trajectory that integrates complementary information from multiple modalities while accounting for treatment and medication history. In particular, the prototype includes time-varying treatment variables such as treatment flag, medicine type, medicine dose, cumulative treatment exposure, and treatment change, because treatment can modify the apparent disease trajectory and therefore must be considered when modelling progression.
+## What the demo does
 
-The work is structured in stages. First, a synthetic longitudinal benchmark is developed to reflect realistic disease evolution under irregular sampling and missing data. Second, modality-specific encoders are used to learn representations from clinical, wearable, and imaging inputs. Third, a temporal model is used to capture progression over time and predict disease stage across follow-up visits. This synthetic prototype provides a transparent and reproducible foundation for methodological exploration before extension to real clinical datasets.
+The generator creates synthetic patient records across non-uniform visit intervals. Each visit contains feature groups for clinical measurements, treatment history, medicine type/dose/frequency/duration and an exposure proxy, wearable measurements, and imaging-derived features.
 
-The overall objective is to develop methods that are robust, interpretable, and clinically meaningful under realistic data constraints. The project contributes to the broader methodological agenda of multimodal learning for healthcare, with particular emphasis on longitudinal disease modelling, missing-data handling, treatment-aware learning, and the integration of heterogeneous sources of patient information.
+Some measurements are missing by design. The preprocessing pipeline records which values were observed before imputing missing values. It fits scaling statistics on training patients and applies those same statistics to validation and test patients.
+
+The model encodes the five feature groups, combines their representations, adds a visit-time representation, and uses a Transformer with a causal attention mask and padding mask. It predicts the **current synthetic stage at each visit**, using the current visit's features and earlier visits. It does not predict a future event or time to progression.
+
+## Evaluation
+
+Patients are split into separate training, validation, and test groups. The Transformer is evaluated on held-out test patients and compared with a majority-class baseline, logistic regression, and random forest. The script saves test metrics, training history, a confusion matrix, a training curve, and a run summary in `results/`.
+
+## Limitations
+
+The data-generating process is deliberately simplified. It is not a clinical dataset, and its results cannot establish real-world predictive performance, fairness, clinical utility, or causal treatment effects. The treatment mechanism is illustrative only. A single seeded synthetic run is a learning demonstration, not clinical validation.
+
+See the main README for setup and execution instructions.
