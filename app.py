@@ -176,7 +176,7 @@ elif mode == "Run trained model":
                     "visit_idx": int(visit_idx_input), "time_months": float(time_months_input),
                     "_scan_name": archive_path, "_scan_bytes": scan_upload.getvalue(),
                 }
-                numeric_fields = set((checkpoint_metadata.get("feature_schema") or {}).get("numeric_columns", []))
+                numeric_fields = set((checkpoint_metadata.get("feature_schema") or {}).get("numeric_columns", checkpoint_metadata.get("feature_columns", [])))
                 invalid = []
                 for field, raw in feature_values.items():
                     raw = raw.strip() if isinstance(raw, str) else raw
@@ -210,6 +210,7 @@ elif mode == "Run trained model":
                 rows = sorted(st.session_state.guided_visits, key=lambda x: (str(x["patient_id"]), int(x["visit_idx"])))
                 errors = []
                 seen = set()
+                previous_times = {}
                 for row in rows:
                     key = (str(row["patient_id"]), int(row["visit_idx"]))
                     if key in seen:
@@ -217,6 +218,11 @@ elif mode == "Run trained model":
                     seen.add(key)
                     if not str(row["image_path"]).strip():
                         errors.append(f"Missing scan path for patient {key[0]}, visit {key[1]}.")
+                    pid = str(row["patient_id"])
+                    current_time = float(row["time_months"])
+                    if pid in previous_times and current_time < previous_times[pid]:
+                        errors.append(f"Months since baseline must not decrease across visits for patient {pid}.")
+                    previous_times[pid] = current_time
                 if errors:
                     for err in errors:
                         st.error(err)
