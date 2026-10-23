@@ -57,6 +57,35 @@ The script writes a model checkpoint, training history and run summary to `raw_i
 
 **Physical-space preprocessing:** the loader reorients volumes to LPS and, by default, linearly resamples them to isotropic 1.5 mm voxels before converting them to a fixed-size input. Set this with `--target-spacing-mm` (for example, `--target-spacing-mm 2.0`). After intensity normalization, it center-crops or pads each axis to the requested cube; it does not stretch each axis independently. This can still crop anatomy or add background, and the target spacing/field of view must be selected for the anatomy and task. Check image orientation, origin, spacing, pixel-value conventions and the resulting field of view on your dataset before training.
 
+## Longitudinal multimodal fusion (raw scans + tabular visits)
+
+Use `train_multimodal_raw_image_model.py` when each visit has both a raw scan and tabular clinical, treatment, medicine, or wearable measurements. Unlike the image-only script above, this path encodes each raw scan with a 3D CNN, fuses its embedding with the available tabular values and explicit missingness masks, and uses a causal Transformer over that patient's visits.
+
+Start with [`multimodal_raw_manifest_template.csv`](multimodal_raw_manifest_template.csv). Required columns:
+
+- `patient_id`: stable pseudonymous patient identifier.
+- `image_path`: one 3D NIfTI file or one-series DICOM directory per visit.
+- `stage`: verified integer label 0–3 for that visit.
+- `visit_idx`: unique visit order per patient.
+- `time_months`: optional numeric time relative to the patient's baseline; if omitted, `visit_idx` is used.
+- At least one supported numeric tabular feature column from the clinical, treatment, medicine, or wearable groups in the template. Columns can be omitted if unavailable; missing values in included columns are represented with observation masks. Feature scaling is fit on training patients only.
+
+Run:
+
+```bash
+python train_multimodal_raw_image_model.py --manifest multimodal_raw_manifest.csv --modality generic
+```
+
+For a small smoke run on a suitably prepared dataset:
+
+```bash
+python train_multimodal_raw_image_model.py --manifest multimodal_raw_manifest.csv --epochs 1 --batch-size 2 --image-size 16 --target-spacing-mm 1.0
+```
+
+The model checkpoint includes its feature-column order, training-only feature statistics, image size, target spacing, modality settings and architecture identifier. The output directory also contains training history and a JSON run summary with held-out test metrics. For deployment/inference, recreate the same preprocessing and architecture and load the saved checkpoint; this script is currently a training/evaluation pipeline, not a packaged prediction API.
+
+**Important:** this performs causal sequence classification of supplied visit-stage labels. It is not a validated future-outcome forecast. Patient-level splitting reduces patient leakage, but does not remove confounding, site/scanner shift, label errors, or small-sample uncertainty. No real medical data or clinical performance is supplied by the repository.
+
 ## Run in Google Colab
 
 1. Open a notebook and clone the repository branch that contains this feature, or use `main` after this change has been merged.
@@ -69,8 +98,8 @@ Do not upload identifiable patient images to a personal notebook or Drive unless
 
 ## Scientific and technical limitations
 
-- This is a small 3D CNN baseline, not a clinical tool and not a validated diagnostic model.
-- It predicts the supplied stage label from one scan at a time. It does **not yet fuse raw image embeddings with the existing clinical, wearable, medicine, treatment and temporal Transformer branches**.
+- These scripts are research baselines, not clinical tools or validated diagnostic models.
+- The image-only script predicts the supplied stage label from one scan. The separate multimodal script fuses raw-image embeddings with available clinical, wearable, medicine and treatment features over visits; neither is clinically validated.
 - The default per-volume intensity normalization is generic. CT Hounsfield-unit windowing, MRI-specific intensity handling, orientation, voxel spacing, resampling and scanner/site differences need modality-specific review.
 - Isotropic resampling and center crop/padding improve geometric consistency but do not guarantee that the same anatomy is present in every input. Inspect the field of view and potential cropping for the target task.
 - A patient-level split prevents scans from the same listed patient appearing across partitions, but does not address all confounding, site leakage, label errors, or distribution shift.
