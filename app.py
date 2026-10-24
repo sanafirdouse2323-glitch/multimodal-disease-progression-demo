@@ -138,12 +138,24 @@ elif mode == "Run trained model":
     st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
     if checkpoint_metadata is not None:
         with st.form(f"guided_visit_form_{st.session_state.guided_form_version}", clear_on_submit=False):
-            patient_id_input = st.text_input("Pseudonymous patient ID (same ID for the same person across visits)", placeholder="P001")
+            patient_id_input = st.text_input(
+                "Pseudonymous patient ID (same ID for the same person across visits)",
+                placeholder="P001",
+                key=f"guided_patient_id_{st.session_state.guided_form_version}",
+            )
             col_visit, col_months = st.columns(2)
             with col_visit:
-                visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
+                visit_idx_input = st.number_input(
+                    "Visit order (baseline = 0, next = 1, ...)",
+                    min_value=0, value=0, step=1,
+                    key=f"guided_visit_idx_{st.session_state.guided_form_version}",
+                )
             with col_months:
-                time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
+                time_months_input = st.number_input(
+                    "Months since baseline (baseline = 0)",
+                    min_value=0.0, value=0.0, step=1.0,
+                    key=f"guided_time_months_{st.session_state.guided_form_version}",
+                )
             scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
             st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
             grouped_fields = {
