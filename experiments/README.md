@@ -1,6 +1,6 @@
 # Whole-feature-group missingness experiment
 
-This experiment extends the repository's synthetic multimodal longitudinal demo with a focused, reproducible comparison relevant to trustworthy machine learning for medicine.
+This experiment extends the repository's synthetic longitudinal demo with a focused comparison relevant to evaluating missing inputs in machine learning for medicine.
 
 ## Why this experiment
 
@@ -13,12 +13,12 @@ The first methodological reference below studies longitudinal multimodal predict
 
 Two versions of the same temporal Transformer are trained on the same synthetic-data split for each run seed:
 
-1. **Standard training**: no additional whole-group dropout.
+1. **Standard training**: no additional feature-group dropout.
 2. **Feature-group dropout training**: independently makes each feature group unavailable with probability 0.20 when a training patient trajectory is loaded. At least one group is retained.
 
-Evaluation uses a patient-disjoint test split and six conditions: complete inputs, or one of the five input groups fully unavailable. A group is hidden by zeroing both its scaled values and its observation indicators. Model checkpoints are selected using validation loss averaged over the same six conditions; the held-out test set is not used to choose checkpoints.
+Evaluation uses a patient-disjoint test split and six conditions: complete inputs, or one of the five feature groups fully unavailable. A group is hidden by zeroing both its scaled values and its observation indicators. Model checkpoints are selected using validation loss averaged over the same six conditions; the held-out test set is not used to choose checkpoints.
 
-The five groups in this prototype are clinical, treatment, medicine, wearable, and imaging-derived features. They are code-level feature groups, not five independent sensing modalities: treatment and medicine are separate groups of clinical context, and the image data in the main experiment are synthetic image-derived feature columns, not raw scans.
+The five groups in this prototype are clinical, treatment, medicine, wearable, and imaging-derived features. They are code-level feature groups, not five independent sensing modalities: treatment and medicine are separate groups of clinical context, and the imaging group in this experiment consists of synthetic image-derived feature columns, not raw scans.
 
 ## Run it
 
@@ -42,7 +42,7 @@ Options are available for patient count, epoch count, batch size, learning rate,
 
 - `run_level_metrics.csv`: every run, training strategy, and test condition.
 - `summary_by_condition.csv`: mean and standard deviation across seeds for accuracy, balanced accuracy, macro-F1, expected calibration error, and multiclass Brier score.
-- `macro_f1_by_missing_modality.png`: plotted macro-F1 by condition and training strategy, with across-run standard-deviation error bars.
+- `macro_f1_by_missing_feature_group.png`: plotted macro-F1 by condition and training strategy, with across-run standard-deviation error bars.
 - `run_summary.json`: configuration, split sizes, conditions, and interpretation limits.
 - `history_seed_*_*.csv`: training and validation-loss history for each strategy/run.
 
@@ -55,6 +55,8 @@ The experiment also records **expected calibration error (ECE)** and the **multi
 - Randomly masking a feature group is a controlled stress test; it does not model every real clinical missingness mechanism.
 - The experiment does not implement hidden-subgroup discovery, fairness mitigation, distribution-shift detection, or label-free performance estimation.
 - It provides no evidence of real-patient performance or clinical utility.
+
+The experiment tests a limited, predefined missing-input scenario. It does not by itself demonstrate that feature-group dropout improves performance; that conclusion requires inspection of the run-level results across seeds and conditions. Even if a difference appears on the synthetic generator, it should not be generalised to real clinical data.
 
 ## Research references
 
