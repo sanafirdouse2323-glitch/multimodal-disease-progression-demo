@@ -191,6 +191,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
+                    wait_for_ui_text("Scan attached: P000_v0.nii.gz")
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     medicine_label = "M_medicine_name (category/text; leave blank if unavailable)"
                     medicine_box = textbox(medicine_label)
@@ -214,6 +215,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
+                    wait_for_ui_text("Scan attached: P000_v1.nii.gz")
                     # Streamlit may not expose the selected filename as ordinary page
                     # text in every version/theme. Verify the actual file input instead.
                     scan_files = uploader_input(
