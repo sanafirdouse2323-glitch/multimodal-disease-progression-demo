@@ -157,20 +157,28 @@ elif mode == "Run trained model":
             )
         scan_upload = st.file_uploader(
             "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
-            type=["nii", "gz", "mha", "nrrd"],
+            # Compound medical-image extensions such as .nii.gz are not handled
+            # consistently by browser file-input accept filters across versions.
+            # Accept the selection here, then validate the full filename explicitly
+            # before retaining its bytes.
+            type=None,
             key=f"guided_scan_upload_{st.session_state.guided_form_version}",
         )
-        # Store upload bytes as soon as Streamlit delivers them. The uploader's widget
-        # value is ephemeral across keyed-widget replacement, so submission reads a
-        # durable per-visit snapshot from session state instead.
+        scan_snapshot_key = f"guided_scan_bytes_{st.session_state.guided_form_version}"
         if scan_upload is not None:
-            st.session_state[f"guided_scan_bytes_{st.session_state.guided_form_version}"] = {
-                "name": scan_upload.name,
-                "bytes": scan_upload.getvalue(),
-            }
-        scan_snapshot = st.session_state.get(
-            f"guided_scan_bytes_{st.session_state.guided_form_version}"
-        )
+            scan_name = Path(scan_upload.name).name
+            allowed_scan_suffixes = (".nii", ".nii.gz", ".mha", ".nrrd")
+            if not scan_name.lower().endswith(allowed_scan_suffixes):
+                st.session_state.pop(scan_snapshot_key, None)
+                st.error("Unsupported scan file extension. Use .nii, .nii.gz, .mha, or .nrrd.")
+            else:
+                # Keep a per-visit byte snapshot because uploader widget state is
+                # ephemeral when the keyed uploader is replaced for a new visit.
+                st.session_state[scan_snapshot_key] = {
+                    "name": scan_name,
+                    "bytes": scan_upload.getvalue(),
+                }
+        scan_snapshot = st.session_state.get(scan_snapshot_key)
         if scan_snapshot is not None:
             st.caption(f"Scan attached: {scan_snapshot['name']}")
         else:
