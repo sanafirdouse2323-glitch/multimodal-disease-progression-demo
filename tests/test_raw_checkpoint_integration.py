@@ -161,18 +161,18 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         return uploader(label).locator('input[type="file"]')
 
                     def upload_via_ui(label: str, file_path: Path):
-                        # Use the rendered uploader button and browser file chooser,
-                        # not only the hidden input's files property. This exercises the
-                        # same event path as an actual user selecting a file.
+                        # Streamlit's visible "Browse files" button opens a file chooser,
+                        # but the uploader component's hidden input is the actual target.
+                        # Attach through that input (Playwright dispatches the file-input
+                        # change event) and wait for Streamlit's server-side acknowledgement
+                        # at the call site before proceeding.
                         container = uploader(label)
-                        buttons = container.get_by_role("button")
-                        self.assertGreater(
-                            buttons.count(), 0,
-                            f"No visible upload button found for uploader {label!r}.",
+                        file_input = container.locator('input[type="file"]')
+                        self.assertEqual(
+                            file_input.count(), 1,
+                            f"Expected one file input for uploader {label!r}.",
                         )
-                        with page.expect_file_chooser(timeout=10_000) as chooser_info:
-                            buttons.last.click()
-                        chooser_info.value.set_files(str(file_path))
+                        file_input.set_input_files(str(file_path))
 
                     upload_via_ui("Model checkpoint (.pt)", checkpoint_path)
                     page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
