@@ -2,7 +2,7 @@
 
 A small **Python/PyTorch portfolio demo** for learning how to work with synthetic longitudinal health data. It combines clinical measurements, wearable signals, imaging-derived features, and treatment/medicine history, then predicts a patient's **current synthetic disease stage** from the current and earlier visits.
 
-This project is intended to demonstrate programming, data preparation, model training, and evaluation skills for a PhD application. It is **not a clinical tool**, does not use real patient records, and does not establish clinical performance.
+This project is a Python/PyTorch portfolio prototype intended to demonstrate data preparation, temporal model implementation, baseline comparison, testing, and evaluation practices relevant to research in machine learning for medicine. It is **not a clinical tool**, does not use real patient records, and does not establish clinical performance.
 
 ## What it demonstrates
 
@@ -16,6 +16,10 @@ This project is intended to demonstrate programming, data preparation, model tra
 - Comparison with a majority-class baseline, logistic regression, and random forest.
 - Held-out test metrics, a confusion matrix, a training curve, and a JSON run summary.
 - A fixed random seed for a reproducible starting point.
+
+## Relevance to trustworthy machine learning for medicine
+
+The project provides a small, synthetic setting in which to practise longitudinal modelling, multimodal feature fusion, missing-data handling, and evaluation of both classification and probability calibration. These are relevant methodological themes for research in machine learning for medicine, but this repository is not a complete implementation of any specific PhD project's research agenda. In particular, it does not establish causal effects, real-world robustness, subgroup fairness, uncertainty reliability, or clinical utility.
 
 ## Important interpretation
 
@@ -102,6 +106,10 @@ See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, prepro
 ## Visual interactive interface
 
 A Streamlit web interface is available in `app.py`. Run `python -m pip install -r requirements.txt` followed by `streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
+
+## Research-inspired whole-feature-group missingness experiment
+
+For a focused experiment related to missing-data robustness in longitudinal learning, see [the whole-feature-group robustness experiment](experiments/README.md). It compares standard training with stochastic feature-group dropout on synthetic longitudinal data, evaluates complete inputs and each single-feature-group-missing condition, and reports classification and calibration metrics. The groups are not five independent sensing modalities, and the experiment is not a reproduction of the cited papers or a clinical validation study.
 
 ## License
 
