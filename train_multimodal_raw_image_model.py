@@ -74,18 +74,27 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
     frame["stage"] = stage.astype(int)
     if not frame["stage"].isin([0, 1, 2, 3]).all():
         raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
-    visits = pd.to_numeric(frame["visit_idx"], errors="raise")
-    if not np.isfinite(visits.to_numpy(dtype=float)).all():
-        raise ValueError("visit_idx must contain finite numeric values.")
-    frame["visit_idx"] = visits.astype(float)
+    visit_values = pd.to_numeric(frame["visit_idx"], errors="raise").to_numpy(dtype=float)
+    if (not np.isfinite(visit_values).all()
+            or not np.equal(visit_values, np.floor(visit_values)).all()
+            or (visit_values < 0).any()):
+        raise ValueError("visit_idx must contain non-negative integers.")
+    frame["visit_idx"] = visit_values.astype(np.int64)
     if "time_months" not in frame.columns:
         frame["time_months"] = frame["visit_idx"]
-    times = pd.to_numeric(frame["time_months"], errors="raise")
-    if not np.isfinite(times.to_numpy(dtype=float)).all():
-        raise ValueError("time_months must contain finite numeric values.")
-    frame["time_months"] = times.astype(float)
+    time_values = pd.to_numeric(frame["time_months"], errors="raise").to_numpy(dtype=float)
+    if not np.isfinite(time_values).all() or (time_values < 0).any():
+        raise ValueError("time_months must contain finite, non-negative values.")
+    frame["time_months"] = time_values
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
+    ordered_visits = frame.sort_values(["patient_id", "visit_idx"])
+    for patient_id, patient_visits in ordered_visits.groupby("patient_id", sort=False):
+        patient_times = patient_visits["time_months"].to_numpy(dtype=float)
+        if (np.diff(patient_times) < 0).any():
+            raise ValueError(
+                f"time_months must not decrease across visits for patient {patient_id!r}."
+            )
     feature_cols = [
         col for col in frame.columns
         if col in ALL_FEATURES or col.startswith(GROUP_PREFIXES)
@@ -159,19 +168,19 @@ def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFram
         raw = frame[col].astype("string").str.strip() if col in frame else pd.Series(pd.NA, index=frame.index, dtype="string")
         raw = raw.replace("", pd.NA)
         names = [f"{col}__category_{i}" for i in range(len(categories))]
-        unknown_name = f"{col}__unknown"
-        columns = names + [unknown_name]
-        for name in columns:
+        # Unseen categories use an all-zero one-hot vector. Do not create a
+        # dedicated unknown column: it would be zero for every training row,
+        # leaving its model weights untrained but activating them at inference.
+        for name in names:
             encoded[name] = 0.0
         for row_index, value in raw.items():
             if pd.isna(value):
-                for name in columns:
+                for name in names:
                     encoded.at[row_index, name] = np.nan
             elif str(value) in categories:
                 encoded.at[row_index, names[categories.index(str(value))]] = 1.0
-            else:
-                encoded.at[row_index, unknown_name] = 1.0
-        feature_cols.extend(columns)
+            # Unseen values intentionally remain all-zero and remain observed.
+        feature_cols.extend(names)
     return encoded, feature_cols
 
 
