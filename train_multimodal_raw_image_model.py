@@ -176,13 +176,16 @@ def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFram
         for name in columns:
             encoded[name] = 0.0
         for row_index, value in raw.items():
-            if pd.isna(value):
+            if pd.isna(value) or not categories:
+                # If no category was observed during training, there is no
+                # learned representation for this feature. Preserve it as
+                # missing at inference instead of activating an untrained mask.
                 for name in columns:
                     encoded.at[row_index, name] = np.nan
             elif str(value) in categories:
                 encoded.at[row_index, names[categories.index(str(value))]] = 1.0
-            # Unseen values intentionally leave all category columns, including
-            # the compatibility unknown column, at zero while remaining observed.
+            # Unseen values with a non-empty training vocabulary intentionally
+            # leave all category columns at zero while remaining observed.
         feature_cols.extend(columns)
     return encoded, feature_cols
 
@@ -329,21 +332,25 @@ def move_batch(batch, device):
 
 def evaluate(model, loader, device):
     model.eval()
-    ys, preds, losses = [], [], []
+    ys, preds = [], []
+    total_loss, total_targets = 0.0, 0
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
     with torch.no_grad():
         for batch in loader:
             batch = move_batch(batch, device)
             logits = model(batch)
-            loss = criterion(logits.reshape(-1, 4), batch["labels"].reshape(-1))
-            losses.append(float(loss.item()))
             valid = batch["labels"] != -100
+            n_targets = int(valid.sum().item())
+            if n_targets:
+                loss = criterion(logits.reshape(-1, 4), batch["labels"].reshape(-1))
+                total_loss += float(loss.item()) * n_targets
+                total_targets += n_targets
             ys.extend(batch["labels"][valid].cpu().tolist())
             preds.extend(logits.argmax(-1)[valid].cpu().tolist())
     if not ys:
         raise ValueError("Evaluation split contains no labelled visits.")
     return {
-        "loss": float(np.mean(losses)),
+        "loss": total_loss / total_targets,
         "accuracy": float(accuracy_score(ys, preds)),
         "macro_f1": float(f1_score(ys, preds, average="macro", zero_division=0)),
         "n_visits": len(ys),
