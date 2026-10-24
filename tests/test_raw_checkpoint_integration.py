@@ -152,25 +152,34 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # visually hidden; click the visible label instead of the input.
                     page.get_by_text("Run trained model", exact=True).click()
                     page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
-                    def uploader(label: str):
-                        return page.locator('[data-testid="stFileUploader"]').filter(
-                            has=page.get_by_text(label, exact=True)
-                        )
-
                     def uploader_input(label: str):
-                        return uploader(label).locator('input[type="file"]')
+                        # Locate the uploader from its rendered label text, then query
+                        # the nearest uploader component. Streamlit versions can place
+                        # the label outside the element carrying data-testid="stFileUploader",
+                        # so filtering the component container by descendant text is brittle.
+                        label_node = page.get_by_text(label, exact=True)
+                        label_node.wait_for(state="visible")
+                        container = label_node.locator(
+                            "xpath=ancestor::*[@data-testid='stFileUploader'][1]"
+                        )
+                        if container.count() == 0:
+                            # Fallback for Streamlit DOM versions where the label is a
+                            # sibling: find the nearest block containing this exact label.
+                            container = page.locator(
+                                "[data-testid='stFileUploader']"
+                            ).filter(has_text=label)
+                        return container.locator('input[type="file"]')
 
                     def upload_via_ui(label: str, file_path: Path):
-                        # Streamlit's visible "Browse files" button opens a file chooser,
-                        # but the uploader component's hidden input is the actual target.
-                        # Attach through that input (Playwright dispatches the file-input
-                        # change event) and wait for Streamlit's server-side acknowledgement
-                        # at the call site before proceeding.
-                        container = uploader(label)
-                        file_input = container.locator('input[type="file"]')
+                        # Streamlit's uploader input is hidden; Playwright sets the file
+                        # and emits the browser input/change events. The test then waits
+                        # for a server-rendered acknowledgement, so DOM-only file state
+                        # is not treated as proof of a successful upload.
+                        file_input = uploader_input(label)
                         self.assertEqual(
                             file_input.count(), 1,
-                            f"Expected one file input for uploader {label!r}.",
+                            f"Expected one file input for uploader {label!r}; "
+                            f"matching inputs={page.locator('[data-testid=stFileUploader] input[type=file]').count()}",
                         )
                         file_input.set_input_files(str(file_path))
 
