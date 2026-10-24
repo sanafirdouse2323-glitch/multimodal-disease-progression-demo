@@ -168,19 +168,22 @@ def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFram
         raw = frame[col].astype("string").str.strip() if col in frame else pd.Series(pd.NA, index=frame.index, dtype="string")
         raw = raw.replace("", pd.NA)
         names = [f"{col}__category_{i}" for i in range(len(categories))]
-        # Unseen categories use an all-zero one-hot vector. Do not create a
-        # dedicated unknown column: it would be zero for every training row,
-        # leaving its model weights untrained but activating them at inference.
-        for name in names:
+        # Keep the zero-valued unknown column for checkpoint-schema compatibility.
+        # Never activate it: no unknown examples occur in the training vocabulary,
+        # so its weight is not learned. Unseen categories therefore map to all zeros.
+        unknown_name = f"{col}__unknown"
+        columns = names + [unknown_name]
+        for name in columns:
             encoded[name] = 0.0
         for row_index, value in raw.items():
             if pd.isna(value):
-                for name in names:
+                for name in columns:
                     encoded.at[row_index, name] = np.nan
             elif str(value) in categories:
                 encoded.at[row_index, names[categories.index(str(value))]] = 1.0
-            # Unseen values intentionally remain all-zero and remain observed.
-        feature_cols.extend(names)
+            # Unseen values intentionally leave all category columns, including
+            # the compatibility unknown column, at zero while remaining observed.
+        feature_cols.extend(columns)
     return encoded, feature_cols
 
 
