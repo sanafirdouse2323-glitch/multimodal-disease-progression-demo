@@ -368,7 +368,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         visible_text,
                         msg="Guided Streamlit inference returned an app error. Visible UI:\\n" + visible_text[-8000:],
                     )
-                    page.get_by_text("P001", exact=False).wait_for()
+                    # This success-only control is rendered after the predictions CSV
+                    # has been read and displayed. Do not use a loose "P001" locator:
+                    # patient IDs also appear in the manifest review table and scan paths.
+                    page.get_by_role("button", name="Download predictions CSV").wait_for()
                     browser.close()
             finally:
                 app_process.terminate()
