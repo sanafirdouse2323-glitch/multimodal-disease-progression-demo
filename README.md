@@ -73,7 +73,8 @@ The script prints held-out test metrics and saves the following files under `res
 - `training_history.csv` — training and validation loss and validation metrics by epoch
 - `training_curve.png` — training/validation loss plot
 - `transformer_confusion_matrix.png` — test-set confusion matrix
-- `run_summary.json` — run configuration, split sizes, metrics, and interpretation note
+- `synthetic_transformer.pt` — versioned Transformer artifact with feature schema, training-only scaling statistics, model configuration, seed, and synthetic-only limitation metadata
+- `run_summary.json` — run configuration, split sizes, metrics, artifact reference, and interpretation note
 
 Results are generated when you run the script; no scores are claimed in advance.
 
