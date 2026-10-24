@@ -20,6 +20,29 @@ import pandas as pd
 import streamlit as st
 import torch
 
+
+def _snapshot_guided_scan_upload(widget_key: str, snapshot_key: str, error_key: str) -> None:
+    """Persist a completed file-uploader selection before later widget reruns."""
+    uploaded = st.session_state.get(widget_key)
+    if uploaded is None:
+        return
+
+    scan_name = Path(uploaded.name).name
+    allowed_suffixes = (".nii", ".nii.gz", ".mha", ".nrrd")
+    if not scan_name.lower().endswith(allowed_suffixes):
+        st.session_state.pop(snapshot_key, None)
+        st.session_state[error_key] = (
+            "Unsupported scan file extension. Use .nii, .nii.gz, .mha, or .nrrd."
+        )
+        return
+
+    st.session_state[snapshot_key] = {
+        "name": scan_name,
+        "bytes": uploaded.getvalue(),
+    }
+    st.session_state.pop(error_key, None)
+
+
 st.set_page_config(page_title="Multimodal Disease-Progression Demo", page_icon="🧠", layout="wide")
 
 st.title("Multimodal Disease-Progression Demo")
@@ -155,29 +178,25 @@ elif mode == "Run trained model":
                 min_value=0.0, value=0.0, step=1.0,
                 key=f"guided_time_months_{st.session_state.guided_form_version}",
             )
+        scan_widget_key = f"guided_scan_upload_{st.session_state.guided_form_version}"
+        scan_snapshot_key = f"guided_scan_bytes_{st.session_state.guided_form_version}"
+        scan_error_key = f"guided_scan_upload_error_{st.session_state.guided_form_version}"
         scan_upload = st.file_uploader(
             "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
-            # Compound medical-image extensions such as .nii.gz are not handled
-            # consistently by browser file-input accept filters across versions.
-            # Accept the selection here, then validate the full filename explicitly
-            # before retaining its bytes.
+            # Validate compound extensions ourselves so browser accept filters do
+            # not incorrectly hide .nii.gz files on some Streamlit/browser versions.
             type=None,
-            key=f"guided_scan_upload_{st.session_state.guided_form_version}",
+            key=scan_widget_key,
+            on_change=_snapshot_guided_scan_upload,
+            args=(scan_widget_key, scan_snapshot_key, scan_error_key),
         )
-        scan_snapshot_key = f"guided_scan_bytes_{st.session_state.guided_form_version}"
-        if scan_upload is not None:
-            scan_name = Path(scan_upload.name).name
-            allowed_scan_suffixes = (".nii", ".nii.gz", ".mha", ".nrrd")
-            if not scan_name.lower().endswith(allowed_scan_suffixes):
-                st.session_state.pop(scan_snapshot_key, None)
-                st.error("Unsupported scan file extension. Use .nii, .nii.gz, .mha, or .nrrd.")
-            else:
-                # Keep a per-visit byte snapshot because uploader widget state is
-                # ephemeral when the keyed uploader is replaced for a new visit.
-                st.session_state[scan_snapshot_key] = {
-                    "name": scan_name,
-                    "bytes": scan_upload.getvalue(),
-                }
+        # The callback snapshots the upload before normal script execution. This
+        # guarded fallback also handles sessions created before the callback ran.
+        if scan_upload is not None and scan_snapshot_key not in st.session_state:
+            _snapshot_guided_scan_upload(scan_widget_key, scan_snapshot_key, scan_error_key)
+        scan_error = st.session_state.get(scan_error_key)
+        if scan_error:
+            st.error(scan_error)
         scan_snapshot = st.session_state.get(scan_snapshot_key)
         if scan_snapshot is not None:
             st.caption(f"Scan attached: {scan_snapshot['name']}")
