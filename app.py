@@ -137,56 +137,55 @@ elif mode == "Run trained model":
     st.markdown("### Guided entry: add one scan visit at a time")
     st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
     if checkpoint_metadata is not None:
-        with st.form(f"guided_visit_form_{st.session_state.guided_form_version}", clear_on_submit=False):
-            patient_id_input = st.text_input(
-                "Pseudonymous patient ID (same ID for the same person across visits)",
-                placeholder="P001",
-                key=f"guided_patient_id_{st.session_state.guided_form_version}",
+        patient_id_input = st.text_input(
+            "Pseudonymous patient ID (same ID for the same person across visits)",
+            placeholder="P001",
+            key=f"guided_patient_id_{st.session_state.guided_form_version}",
+        )
+        col_visit, col_months = st.columns(2)
+        with col_visit:
+            visit_idx_input = st.number_input(
+                "Visit order (baseline = 0, next = 1, ...)",
+                min_value=0, value=0, step=1,
+                key=f"guided_visit_idx_{st.session_state.guided_form_version}",
             )
-            col_visit, col_months = st.columns(2)
-            with col_visit:
-                visit_idx_input = st.number_input(
-                    "Visit order (baseline = 0, next = 1, ...)",
-                    min_value=0, value=0, step=1,
-                    key=f"guided_visit_idx_{st.session_state.guided_form_version}",
-                )
-            with col_months:
-                time_months_input = st.number_input(
-                    "Months since baseline (baseline = 0)",
-                    min_value=0.0, value=0.0, step=1.0,
-                    key=f"guided_time_months_{st.session_state.guided_form_version}",
-                )
-            scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
-            st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
-            grouped_fields = {
-                "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
-                "Treatment features": [x for x in raw_feature_fields if x.startswith("T_")],
-                "Medicine features": [x for x in raw_feature_fields if x.startswith("M_")],
-                "Wearable features": [x for x in raw_feature_fields if x.startswith("W_")],
-            }
-            feature_values = {}
-            for group_name, fields in grouped_fields.items():
-                if fields:
-                    # Keep all checkpoint-required feature groups open in the guided form.
-                    # Collapsed widgets are easy to miss and complicate accessible browser use.
-                    with st.expander(
-                        group_name,
-                        expanded=(group_name in {"Clinical features", "Medicine features"}),
-                    ):
-                        for field in fields:
-                            if field in categorical_fields:
-                                feature_values[field] = st.text_input(
-                                    f"{field} (category/text; leave blank if unavailable)",
-                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
-                                    help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
-                                )
-                            else:
-                                feature_values[field] = st.text_input(
-                                    f"{field} (number; leave blank if unavailable)",
-                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
-                                    help="Use the same units and definitions as the training data. Do not guess missing values."
-                                )
-            add_visit = st.form_submit_button("Add this visit to the review table")
+        with col_months:
+            time_months_input = st.number_input(
+                "Months since baseline (baseline = 0)",
+                min_value=0.0, value=0.0, step=1.0,
+                key=f"guided_time_months_{st.session_state.guided_form_version}",
+            )
+        scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
+        st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
+        grouped_fields = {
+            "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
+            "Treatment features": [x for x in raw_feature_fields if x.startswith("T_")],
+            "Medicine features": [x for x in raw_feature_fields if x.startswith("M_")],
+            "Wearable features": [x for x in raw_feature_fields if x.startswith("W_")],
+        }
+        feature_values = {}
+        for group_name, fields in grouped_fields.items():
+            if fields:
+                # Keep all checkpoint-required feature groups open in the guided form.
+                # Collapsed widgets are easy to miss and complicate accessible browser use.
+                with st.expander(
+                    group_name,
+                    expanded=(group_name in {"Clinical features", "Medicine features"}),
+                ):
+                    for field in fields:
+                        if field in categorical_fields:
+                            feature_values[field] = st.text_input(
+                                f"{field} (category/text; leave blank if unavailable)",
+                                key=f"guided_{st.session_state.guided_form_version}_{field}",
+                                help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
+                            )
+                        else:
+                            feature_values[field] = st.text_input(
+                                f"{field} (number; leave blank if unavailable)",
+                                key=f"guided_{st.session_state.guided_form_version}_{field}",
+                                help="Use the same units and definitions as the training data. Do not guess missing values."
+                            )
+        add_visit = st.button("Add this visit to the review table", key=f"guided_add_visit_{st.session_state.guided_form_version}")
         if add_visit:
             pid = patient_id_input.strip()
             if not pid:
