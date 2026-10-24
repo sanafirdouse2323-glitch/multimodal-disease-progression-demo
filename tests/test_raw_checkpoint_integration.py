@@ -190,7 +190,14 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
-                    page.get_by_text("P000_v0.nii.gz", exact=True).wait_for(timeout=20_000)
+                    baseline_scan_files = uploader_input(
+                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)"
+                    ).evaluate("(el) => Array.from(el.files || []).map(file => file.name)")
+                    self.assertIn(
+                        "P000_v0.nii.gz",
+                        baseline_scan_files,
+                        f"Baseline scan not selected in the browser file input: {baseline_scan_files}",
+                    )
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     medicine_label = "M_medicine_name (category/text; leave blank if unavailable)"
                     medicine_box = textbox(medicine_label)
