@@ -71,6 +71,12 @@ class RawImageTemporalFusionTests(unittest.TestCase):
                 set(feature_cols),
                 {"C_hemoglobin", "W_steps", "T_duration_days", "M_dose_mg"},
             )
+            duplicated_scan = frame.copy()
+            duplicated_scan.loc[1] = duplicated_scan.loc[0]
+            duplicated_scan.loc[1, "patient_id"] = "P2"
+            duplicated_scan.loc[1, "stage"] = 1
+            with self.assertRaisesRegex(ValueError, "assigned to multiple patient_id"):
+                validate_manifest(duplicated_scan, root)
 
     def test_categorical_text_is_encoded_and_unseen_values_are_handled(self):
         frame = pd.DataFrame({
@@ -110,7 +116,7 @@ class RawImageTemporalFusionTests(unittest.TestCase):
         schema = fit_feature_schema(frame.iloc[[0]], ["M_medicine_name"])
         encoded, columns = encode_feature_frame(frame, schema)
         self.assertTrue(columns)
-        self.assertTrue(encoded.loc[:, columns].isna().all(axis=None))
+        self.assertTrue(encoded.loc[:, columns].isna().to_numpy().all())
 
     def test_visit_indices_and_timeline_are_validated(self):
         base = pd.DataFrame({
