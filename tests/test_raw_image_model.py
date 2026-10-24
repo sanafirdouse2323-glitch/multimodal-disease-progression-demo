@@ -86,6 +86,30 @@ class RawImagePipelineTests(unittest.TestCase):
         self.assertTrue(b.isdisjoint(c))
         self.assertEqual(len(train) + len(valid) + len(test), len(frame))
 
+    def test_manifest_rejects_blank_ids_and_invalid_visit_order(self):
+        frame = pd.DataFrame({
+            "patient_id": ["P1", "P1"],
+            "image_path": ["scan0.nii.gz", "scan1.nii.gz"],
+            "stage": [0, 1],
+            "visit_idx": [0, 1],
+            "time_months": [0.0, 6.0],
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            valid = validate_manifest(frame, Path(directory))
+            self.assertEqual(valid["patient_id"].tolist(), ["P1", "P1"])
+            blank_id = frame.copy()
+            blank_id.loc[0, "patient_id"] = "  "
+            with self.assertRaisesRegex(ValueError, "must not be blank"):
+                validate_manifest(blank_id, Path(directory))
+            invalid_visit = frame.copy()
+            invalid_visit.loc[1, "visit_idx"] = 1.5
+            with self.assertRaisesRegex(ValueError, "visit_idx"):
+                validate_manifest(invalid_visit, Path(directory))
+            invalid_time = frame.copy()
+            invalid_time["time_months"] = [6.0, 0.0]
+            with self.assertRaisesRegex(ValueError, "time_months must not decrease"):
+                validate_manifest(invalid_time, Path(directory))
+
     def test_manifest_resolves_relative_paths_and_rejects_bad_stage(self):
         frame = pd.DataFrame({"patient_id": ["P1"], "image_path": ["scan.nii.gz"], "stage": [2]})
         with tempfile.TemporaryDirectory() as directory:
