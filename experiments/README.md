@@ -33,7 +33,7 @@ The default run uses 500 synthetic patients per run, ten epochs, and seeds 42, 4
 ```bash
 python experiments/missing_modality_robustness.py \
   --n-patients 40 --epochs 1 --batch-size 16 --seeds 42 --cpu \
-  --output-dir results/missing_modality_robustness_smoke
+  --output-dir results/missing_feature_group_robustness_smoke
 ```
 
 Options are available for patient count, epoch count, batch size, learning rate, dropout probability, seeds, output directory, and CPU execution. For less noisy estimates, increase the number of seeds and report their variation; do not rely on a single run.
