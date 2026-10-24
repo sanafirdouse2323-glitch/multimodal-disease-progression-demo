@@ -183,13 +183,24 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         # hidden-input shortcut left Streamlit's server-side uploader
                         # state empty even though the browser test had set a file path.
                         container = uploader_container(label)
-                        choose_button = container.get_by_role("button").first
+                        # The hidden file input has an implicit button role in the
+                        # current Streamlit DOM, so get_by_role("button") can select
+                        # that hidden input instead of the visible browse control.
+                        visible_buttons = container.locator("button:visible")
+                        if visible_buttons.count() > 0:
+                            chooser_trigger = visible_buttons.first
+                        else:
+                            # Fallback for Streamlit versions where the dropzone itself
+                            # opens the native file chooser without a child <button>.
+                            chooser_trigger = container.locator(
+                                "[data-testid='stFileUploaderDropzone']"
+                            )
                         self.assertEqual(
-                            choose_button.count(), 1,
-                            f"Could not find the visible choose-file control for {label!r}",
+                            chooser_trigger.count(), 1,
+                            f"Could not find a visible choose-file/dropzone control for {label!r}",
                         )
                         with page.expect_file_chooser(timeout=15_000) as chooser_event:
-                            choose_button.click()
+                            chooser_trigger.click()
                         chooser_event.value.set_files(str(file_path))
                         file_input = uploader_input(label)
                         self.assertEqual(
