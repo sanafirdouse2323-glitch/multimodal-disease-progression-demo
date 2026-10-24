@@ -58,12 +58,14 @@ Activate the environment:
 source .venv/bin/activate
 ```
 
-Install dependencies and run:
+Install the project into the active environment and run the synthetic demo:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -e .
 python demo_disease_progression.py
 ```
+
+The editable install registers CLI entry points: `mdp-demo`, `mdp-train-image`, `mdp-predict-image`, `mdp-train-multimodal`, and `mdp-predict-multimodal`. To install only the core dependencies without registering commands, `python -m pip install -r requirements.txt` remains supported. The optional browser UI can be installed separately with `python -m pip install -r requirements-streamlit.txt` or `python -m pip install -e ".[browser]"`.
 
 The script prints held-out test metrics and saves the following files under `results/`:
 
@@ -118,7 +120,7 @@ Open the Replit Webview when Streamlit starts. This interface is optional; it is
 
 The repository has two separate raw-image training paths:
 
-- `train_raw_image_model.py` trains an image-only 3D CNN.
+- `train_raw_image_model.py` trains an image-only 3D CNN and saves a versioned checkpoint containing inference preprocessing metadata. `predict_raw_image_model.py` loads that artifact and emits per-scan class probabilities.
 - `train_multimodal_raw_image_model.py` trains a raw-image + tabular longitudinal model. `predict_multimodal_raw_image_model.py` runs inference from that model's saved checkpoint.
 
 Both need 3D image files and manifest CSVs. To verify the pipeline without having a medical dataset ready, run:
@@ -138,6 +140,16 @@ By default, generated data and results are saved in `raw_image_smoke_demo/`:
 - `predictions.csv` — two-visit prediction output
 
 The script regenerates its own `SYNTH_...` scan files and manifests each time it is run. This 3D-CNN smoke test takes longer and uses more CPU than the core demo, so the default Replit Run button intentionally does not run it.
+
+### Image-only checkpoint inference
+
+After training `train_raw_image_model.py` on your authorised labelled data, use a separate prediction CSV with `patient_id` and `image_path` (optional `visit_idx` and `time_months`; no stage label is required):
+
+```bash
+mdp-predict-image --checkpoint raw_image_results/raw_image_3dcnn.pt --manifest prediction_manifest.csv --output predictions.csv
+```
+
+Or run `python predict_raw_image_model.py` with the same arguments if you have not installed the project entry points. Inference reads preprocessing settings from the checkpoint, resolves relative image paths from the prediction CSV, validates the input, and outputs predicted stage, confidence, and four class probabilities. This is research inference, not a clinical decision tool.
 
 ### Train on an authorised dataset
 
