@@ -468,6 +468,12 @@ def main():
             "seed": int(args.seed),
             "epochs_requested": int(args.epochs),
             "epochs_completed": len(history),
+            "batch_size_patients": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "gradient_clip_norm": 2.0,
+            "early_stopping_patience": 4,
             "best_validation_loss": float(best_loss),
             "selected_checkpoint_by": "lowest validation cross-entropy",
         },
@@ -485,6 +491,18 @@ def main():
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "causal longitudinal stage classification with raw scan + tabular fusion",
+        "seed": int(args.seed),
+        "training": {
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "batch_size_patients": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "gradient_clip_norm": 2.0,
+            "early_stopping_patience": 4,
+            "best_validation_loss": float(best_loss),
+        },
         "artifact": {
             "path": "multimodal_raw_model.pt",
             "type": "multimodal-disease-progression.multimodal-raw-image",
