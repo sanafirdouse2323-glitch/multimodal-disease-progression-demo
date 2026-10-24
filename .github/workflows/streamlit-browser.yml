@@ -10,6 +10,7 @@ on:
       - "predict_multimodal_raw_image_model.py"
       - "raw_image_model.py"
       - "requirements.txt"
+      - "requirements-streamlit.txt"
       - ".github/workflows/streamlit-browser.yml"
   workflow_dispatch:
 
@@ -27,7 +28,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-streamlit.txt
 
       - name: Cache Playwright browser binaries
         uses: actions/cache@v4
@@ -38,8 +41,8 @@ jobs:
       - name: Install CPU-only PyTorch for CI
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
 
-      - name: Install project dependencies
-        run: python -m pip install -r requirements.txt
+      - name: Install project and optional Streamlit dependencies
+        run: python -m pip install -r requirements-streamlit.txt
 
       - name: Install browser test dependencies
         run: python -m pip install playwright && python -m playwright install --with-deps chromium
