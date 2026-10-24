@@ -416,6 +416,11 @@ def main():
             "seed": int(args.seed),
             "epochs_requested": int(args.epochs),
             "epochs_completed": len(history),
+            "batch_size": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "early_stopping_patience": 4,
             "best_validation_loss": float(best_loss),
             "selected_checkpoint_by": "lowest validation cross-entropy",
         },
@@ -424,6 +429,8 @@ def main():
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "supervised 3D scan classification",
+        "seed": int(args.seed),
+        "training": checkpoint["training"],
         "input": "raw 3D medical volumes (NIfTI files or one-series-per-directory DICOM)",
         "artifact": {
             "path": "raw_image_3dcnn.pt",
