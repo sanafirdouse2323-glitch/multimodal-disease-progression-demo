@@ -73,6 +73,33 @@ The script prints held-out test metrics and saves the following files under `res
 
 Results are generated when you run the script; no scores are claimed in advance.
 
+## Interactive UI in Replit
+
+The repository includes a `.replit` configuration so Replit's **Run** button starts the Streamlit app in the Replit workspace. This is for interactive development and testing; it does not deploy or merge the project.
+
+1. In [Replit](https://replit.com/), choose **Import from GitHub** and import this repository: [multimodal-disease-progression-demo](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo).
+2. In the Replit Shell, switch to the development branch so you use the current separate-workflow configuration:
+
+   ```bash
+   git fetch origin
+   git switch test/streamlit-browser-workflow
+   ```
+
+3. Install dependencies in the Shell. The CPU-only PyTorch command matches the CI setup:
+
+   ```bash
+   python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+   python -m pip install -r requirements.txt
+   ```
+
+4. Click **Run**. The `.replit` command starts `app.py` on port `8501`. If the Run configuration has not refreshed after switching branches, run this manually in the Shell:
+
+   ```bash
+   python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+   ```
+
+The app can be explored interactively in Replit's Webview. The core model/CLI workflow passes its GitHub Actions checks. Guided Streamlit file-upload and browser inference remain under separate validation, so use the Replit workspace to inspect and test those UI paths rather than assuming they are already fixed. Only synthetic data should be used for this demo.
+
 ## Run tests
 
 ```bash
