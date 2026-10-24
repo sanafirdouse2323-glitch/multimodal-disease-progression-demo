@@ -238,6 +238,21 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     def spinbutton(label: str):
                         return page.get_by_role("spinbutton", name=label, exact=True)
 
+                    def wait_for_streamlit_idle():
+                        # Widget edits trigger script reruns over Streamlit's websocket.
+                        # Do not start a file upload while a previous rerun is still active.
+                        page.wait_for_function(
+                            """() => {
+                                const status = document.querySelector('[data-testid="stStatusWidget"]');
+                                if (!status) return true;
+                                return !/\\b(running|stopping)\\b/i.test(status.innerText || "");
+                            }""",
+                            timeout=15_000,
+                        )
+                        # Give the frontend a short settling interval after the status
+                        # indicator goes idle; no model work is done during this pause.
+                        page.wait_for_timeout(400)
+
                     # Baseline visit. Stage every field before adding so Streamlit has
                     # applied browser widget state to the current script run.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
@@ -245,6 +260,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
+                    wait_for_streamlit_idle()
                     upload_via_ui(
                         "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
                         scans / "P000_v0.nii.gz",
@@ -272,6 +288,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
+                    wait_for_streamlit_idle()
                     upload_via_ui(
                         "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
                         scans / "P000_v1.nii.gz",
