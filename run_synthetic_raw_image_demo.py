@@ -148,8 +148,7 @@ def main() -> None:
         "--modality", "generic",
         "--output-dir", str(multimodal_results),
         "--seed", str(args.seed),
-    ], label="Raw-image + tabular temporal model: train and evaluate",
-       output_dir=output_dir)
+    ], label="Raw-image + tabular temporal model: train and evaluate")
 
     prediction_output = output_dir / "predictions.csv"
     run([
