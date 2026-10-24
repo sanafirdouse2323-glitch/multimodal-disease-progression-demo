@@ -56,6 +56,31 @@ class RawImageTrainingSmokeTest(unittest.TestCase):
             self.assertIn("accuracy", summary["test_metrics"])
             self.assertIn("macro_f1", summary["test_metrics"])
 
+            # Verify the actual training artifact, not only a hand-built test checkpoint.
+            prediction_manifest = root / "prediction.csv"
+            pd.DataFrame([
+                {"patient_id": row["patient_id"], "image_path": row["image_path"]}
+                for row in rows[:2]
+            ]).to_csv(prediction_manifest, index=False)
+            prediction_output = output / "predictions.csv"
+            with patch("sys.argv", [
+                "predict_raw_image_model.py",
+                "--checkpoint", str(checkpoint_path),
+                "--manifest", str(prediction_manifest),
+                "--output", str(prediction_output),
+                "--device", "cpu",
+            ]), contextlib.redirect_stdout(io.StringIO()):
+                from predict_raw_image_model import main as predict_main
+                predict_main()
+            self.assertTrue(prediction_output.is_file())
+            predictions = pd.read_csv(prediction_output)
+            self.assertEqual(len(predictions), 2)
+            self.assertTrue(predictions["predicted_stage"].isin([0, 1, 2, 3]).all())
+            np.testing.assert_allclose(
+                predictions[[f"prob_stage_{i}" for i in range(4)]].sum(axis=1).to_numpy(),
+                np.ones(2), atol=1e-5,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
