@@ -87,11 +87,14 @@ class RawImageTemporalFusionTests(unittest.TestCase):
         encoded, columns = encode_feature_frame(frame, schema)
         self.assertIn("C_age", columns)
         self.assertIn("C_sex__category_0", columns)
-        self.assertFalse(any(col.endswith("__unknown") for col in columns))
+        self.assertIn("C_sex__unknown", columns)
+        self.assertIn("M_medicine_name__unknown", columns)
         sex_category_cols = [col for col in columns if col.startswith("C_sex__category_")]
         medicine_category_cols = [col for col in columns if col.startswith("M_medicine_name__category_")]
         self.assertEqual(float(encoded.loc[2, sex_category_cols].sum()), 0.0)
         self.assertEqual(float(encoded.loc[2, medicine_category_cols].sum()), 0.0)
+        self.assertEqual(float(encoded.loc[2, "C_sex__unknown"]), 0.0)
+        self.assertEqual(float(encoded.loc[2, "M_medicine_name__unknown"]), 0.0)
         self.assertEqual(float(encoded.loc[0, sex_category_cols].sum()), 1.0)
         self.assertEqual(float(encoded.loc[0, medicine_category_cols].sum()), 1.0)
 
