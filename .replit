@@ -1,2 +1,0 @@
-entrypoint = "demo_disease_progression.py"
-run = ["python", "demo_disease_progression.py"]
