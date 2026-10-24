@@ -261,6 +261,9 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> pd.DataFrame:
         path = Path(str(value)).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
     frame["image_path"] = frame["image_path"].map(resolve_path)
+    patient_owners = frame.groupby("image_path")["patient_id"].nunique()
+    if (patient_owners > 1).any():
+        raise ValueError("An image_path cannot be assigned to multiple patient_id values.")
     if "visit_idx" in frame.columns:
         frame = frame.sort_values(["patient_id", "visit_idx"]).reset_index(drop=True)
     if frame.duplicated(["patient_id", "image_path"]).any():
