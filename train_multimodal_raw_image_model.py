@@ -457,7 +457,20 @@ def main():
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     torch.save({
-        "model_state_dict": model.state_dict(),
+        "artifact_type": "multimodal-disease-progression.multimodal-raw-image",
+        "artifact_version": 1,
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "model_config": {"n_features": len(feature_cols), "n_classes": 4},
+        "class_labels": {"0": "stage_0", "1": "stage_1", "2": "stage_2", "3": "stage_3"},
+        "training": {
+            "seed": int(args.seed),
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "best_validation_loss": float(best_loss),
+            "selected_checkpoint_by": "lowest validation cross-entropy",
+        },
         "n_features": len(feature_cols),
         "feature_columns": feature_cols,
         "feature_stats": stats,
@@ -472,6 +485,12 @@ def main():
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "causal longitudinal stage classification with raw scan + tabular fusion",
+        "artifact": {
+            "path": "multimodal_raw_model.pt",
+            "type": "multimodal-disease-progression.multimodal-raw-image",
+            "version": 1,
+            "architecture": "RawImageTemporalFusionModel",
+        },
         "n_scans": int(len(frame)), "n_patients": int(frame.patient_id.nunique()),
         "n_feature_columns": len(feature_cols), "feature_columns": feature_cols,
         "split_patients": {
