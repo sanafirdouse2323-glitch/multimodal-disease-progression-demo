@@ -47,7 +47,27 @@ For a small smoke run on a suitably prepared dataset:
 python train_raw_image_model.py --manifest raw_images_manifest.csv --epochs 2 --batch-size 1 --image-size 32 --modality generic
 ```
 
-The script writes a model checkpoint, training history and run summary to `raw_image_results/`. Test metrics are only meaningful for the supplied labelled dataset and patient split.
+The script writes a versioned `raw_image_3dcnn.pt` checkpoint, training history and run summary to `raw_image_results/`. The checkpoint contains model weights, architecture/version metadata, and the exact image preprocessing settings used at training time. Test metrics are only meaningful for the supplied labelled dataset and patient split.
+
+## Image-only checkpoint inference
+
+To run inference after training, create a separate CSV with one row per scan. Only `patient_id` and `image_path` are required; `visit_idx` and `time_months` are optional. Ground-truth `stage` labels are not required for prediction.
+
+```csv
+patient_id,image_path,visit_idx,time_months
+SUBJECT_A,images/SUBJECT_A/followup.nii.gz,1,6
+SUBJECT_B,images/SUBJECT_B/baseline.nii.gz,0,0
+```
+
+Run:
+
+```bash
+python predict_raw_image_model.py --checkpoint raw_image_results/raw_image_3dcnn.pt --manifest prediction_manifest.csv --output predictions.csv
+```
+
+Relative image paths are resolved from the prediction manifest's directory. The CLI uses the checkpoint's saved modality, voxel size, target spacing and CT window values; it intentionally does not offer inference-time overrides that could silently make preprocessing differ from training. The output includes `predicted_stage`, `confidence`, and `prob_stage_0` through `prob_stage_3`. Probabilities are model outputs and are not necessarily calibrated. Older weights-only checkpoints cannot be used by this CLI because they do not record preprocessing metadata; retrain with the current trainer to create a compatible artifact.
+
+The artifact format is versioned. Keep the checkpoint together with its training manifest provenance, run summary, dependency environment, and the relevant source revision. Do not load checkpoints from untrusted sources.
 
 ### Modality and intensity preprocessing
 
