@@ -199,7 +199,7 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     wait_for_ui_text("Visits in review table: 1")
 
-                    # Follow-up visit. The app re-renders the form with a new key after add.
+                    # Follow-up visit. The app re-renders with a fresh visit-specific upload key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("1")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
