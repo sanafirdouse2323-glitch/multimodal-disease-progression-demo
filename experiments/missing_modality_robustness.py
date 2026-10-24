@@ -33,20 +33,20 @@ CONDITION_ORDER = ("complete",) + tuple(f"without_{name}" for name in FEATURE_GR
 DEFAULT_OUTPUT_DIR = ROOT / "results" / "missing_feature_group_robustness"
 
 
-def remove_feature_groups(sequences: list[dict], feature groups: tuple[str, ...] | list[str]) -> list[dict]:
+def remove_feature_groups(sequences: list[dict], feature_groups: tuple[str, ...] | list[str]) -> list[dict]:
     """Return copies with selected feature groups entirely unavailable at every visit.
 
     Both scaled values and per-feature observation indicators are cleared. Labels,
     visit times, other feature groups, and the original sequences are left unchanged.
     """
-    unknown = set(feature groups) - set(FEATURE_GROUPS)
+    unknown = set(feature_groups) - set(FEATURE_GROUPS)
     if unknown:
         raise ValueError(f"Unknown feature group names: {sorted(unknown)}")
 
     result: list[dict] = []
     for sequence in sequences:
         masked = dict(sequence)
-        for name in feature groups:
+        for name in feature_groups:
             masked[name] = np.zeros_like(sequence[name])
             masked[f"{name}_mask"] = np.zeros_like(sequence[f"{name}_mask"])
         result.append(masked)
@@ -54,7 +54,7 @@ def remove_feature_groups(sequences: list[dict], feature groups: tuple[str, ...]
 
 
 class FeatureGroupDropoutDataset(Dataset):
-    """Apply stochastic whole-feature group dropout to training trajectories only."""
+    """Apply stochastic whole-feature-group dropout to training trajectories only."""
 
     def __init__(self, sequences: list[dict], probability: float = 0.20):
         if not 0.0 <= probability <= 1.0:
@@ -188,7 +188,7 @@ def train_experiment_model(
     """Train a model; choose checkpoints using identical validation conditions.
 
     Both training strategies are selected using the mean validation loss across
-    complete input and all single-feature group-missing conditions. The test set is
+    complete input and all single-feature-group-missing conditions. The test set is
     not used for checkpoint selection.
     """
     if feature_group_dropout_probability > 0:
@@ -283,7 +283,7 @@ def save_plot(summary: pd.DataFrame, path: Path) -> None:
     width = 0.36
     for offset, strategy, label in [
         (-width / 2, "standard", "Standard training"),
-        (width / 2, "feature_group_dropout", "Feature group-dropout training"),
+        (width / 2, "feature_group_dropout", "Feature-group-dropout training"),
     ]:
         subset = summary[summary["strategy"] == strategy].set_index("condition").reindex(
             CONDITION_ORDER
@@ -395,9 +395,9 @@ def run(args: argparse.Namespace) -> None:
     summary = summarise_results(results)
     results.to_csv(output_dir / "run_level_metrics.csv", index=False)
     summary.to_csv(output_dir / "summary_by_condition.csv", index=False)
-    save_plot(summary, output_dir / "macro_f1_by_missing_feature group.png")
+    save_plot(summary, output_dir / "macro_f1_by_missing_feature_group.png")
     report = {
-        "experiment": "whole-feature group missingness robustness",
+        "experiment": "whole-feature-group missingness robustness",
         "data": "synthetic only",
         "prediction_target": "synthetic disease stage at an observed visit",
         "not_claimed": [
@@ -411,7 +411,7 @@ def run(args: argparse.Namespace) -> None:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
-        "feature_group_dropout_probability_per_feature group": args.dropout_probability,
+        "feature_group_dropout_probability_per_feature_group": args.dropout_probability,
         "model_selection": (
             "Checkpoint selected by mean validation loss across complete input and "
             "each leave-one-feature-group-out condition; test data are not used for selection."
@@ -443,7 +443,7 @@ def run(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compare standard training with whole-feature group dropout on synthetic data."
+        description="Compare standard training with whole-feature-group dropout on synthetic data."
     )
     parser.add_argument("--n-patients", type=int, default=500)
     parser.add_argument("--epochs", type=int, default=10)
