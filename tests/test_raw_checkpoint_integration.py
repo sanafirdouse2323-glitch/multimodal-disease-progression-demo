@@ -68,6 +68,13 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
 
             checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
             self.assertEqual(checkpoint.get("architecture"), "RawImageTemporalFusionModel")
+            self.assertEqual(
+                checkpoint.get("artifact_type"),
+                "multimodal-disease-progression.multimodal-raw-image",
+            )
+            self.assertEqual(checkpoint.get("artifact_version"), 1)
+            self.assertEqual(checkpoint.get("model_config", {}).get("n_classes"), 4)
+            self.assertIn("training", checkpoint)
             self.assertIn("feature_schema", checkpoint)
             self.assertIn("M_medicine_name", checkpoint["feature_schema"]["categorical_categories"])
 
