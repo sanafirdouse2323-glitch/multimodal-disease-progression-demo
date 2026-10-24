@@ -134,7 +134,7 @@ class RawImageTemporalFusionTests(unittest.TestCase):
             valid, _ = validate_manifest(base, root)
             self.assertEqual(valid["visit_idx"].tolist(), [0, 1])
             invalid_index = base.copy()
-            invalid_index.loc[1, "visit_idx"] = 1.5
+            invalid_index["visit_idx"] = [0.0, 1.5]
             with self.assertRaisesRegex(ValueError, "visit_idx"):
                 validate_manifest(invalid_index, root)
             invalid_time = base.copy()
