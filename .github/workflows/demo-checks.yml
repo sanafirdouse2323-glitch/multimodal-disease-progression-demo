@@ -31,7 +31,7 @@ jobs:
         run: >-
           python experiments/missing_modality_robustness.py
           --n-patients 40 --epochs 1 --batch-size 16 --seeds 42 --cpu
-          --output-dir results/missing_modality_robustness_smoke
+          --output-dir results/missing_feature_group_robustness_smoke
       - name: Run complete synthetic demo
         run: python demo_disease_progression.py
       - name: Upload generated results
