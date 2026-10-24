@@ -109,7 +109,7 @@ A Streamlit web interface is available in `app.py`. Run `python -m pip install -
 
 ## Research-inspired whole-feature-group missingness experiment
 
-For a focused experiment related to missing-data robustness in longitudinal learning, see [the whole-feature-group robustness experiment](experiments/README.md). It compares standard training with stochastic feature-group dropout on synthetic longitudinal data, evaluates complete inputs and each single-group-missing condition, and reports classification and calibration metrics. The groups are not five independent sensing modalities, and the experiment is not a reproduction of the cited papers or a clinical validation study.
+For a focused experiment related to missing-data robustness in longitudinal learning, see [the whole-feature-group robustness experiment](experiments/README.md). It compares standard training with stochastic feature-group dropout on synthetic longitudinal data, evaluates complete inputs and each single-feature-group-missing condition, and reports classification and calibration metrics. The groups are not five independent sensing modalities, and the experiment is not a reproduction of the cited papers or a clinical validation study.
 
 ## License
 
