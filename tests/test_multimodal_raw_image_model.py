@@ -98,6 +98,20 @@ class RawImageTemporalFusionTests(unittest.TestCase):
         self.assertEqual(float(encoded.loc[0, sex_category_cols].sum()), 1.0)
         self.assertEqual(float(encoded.loc[0, medicine_category_cols].sum()), 1.0)
 
+    def test_categorical_feature_absent_from_training_stays_missing(self):
+        frame = pd.DataFrame({
+            "patient_id": ["P1", "P2"],
+            "image_path": ["a", "b"],
+            "stage": [0, 1],
+            "visit_idx": [0, 0],
+            "time_months": [0.0, 0.0],
+            "M_medicine_name": [pd.NA, "UnexpectedMedicine"],
+        })
+        schema = fit_feature_schema(frame.iloc[[0]], ["M_medicine_name"])
+        encoded, columns = encode_feature_frame(frame, schema)
+        self.assertTrue(columns)
+        self.assertTrue(encoded.loc[:, columns].isna().all(axis=None))
+
     def test_visit_indices_and_timeline_are_validated(self):
         base = pd.DataFrame({
             "patient_id": ["P1", "P1"],
