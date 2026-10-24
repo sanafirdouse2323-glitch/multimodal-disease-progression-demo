@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 
 import demo_disease_progression as demo
-from experiments import missing_feature group_robustness as experiment
+from experiments import missing_modality_robustness as experiment
 
 
 class MissingFeatureGroupExperimentTests(unittest.TestCase):
