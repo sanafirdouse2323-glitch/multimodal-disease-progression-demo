@@ -32,7 +32,7 @@ The model predicts the **current stage at each visit** using that visit's availa
 - scikit-learn
 - matplotlib
 - SimpleITK for the optional raw-image pipeline
-- Streamlit for the optional browser interface
+- Streamlit only if you want the optional browser interface (installed separately)
 
 ## Setup
 
@@ -98,7 +98,13 @@ This branch configures Replit's **Run** button to execute the core Python projec
 
 ### Optional: open the Streamlit interface
 
-To use the browser interface, run this in the Replit Shell instead of the core demo:
+Streamlit is not installed by `requirements.txt`. To use the browser interface, first install its separate optional dependency file in the Replit Shell:
+
+```bash
+python -m pip install -r requirements-streamlit.txt
+```
+
+Then run this instead of the core demo:
 
 ```bash
 python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true --browser.gatherUsageStats false
@@ -166,7 +172,8 @@ The raw-image training/checkpoint/prediction tests still run. Only the extra bro
 - `predict_multimodal_raw_image_model.py` — checkpoint-based multimodal per-visit inference
 - `run_synthetic_raw_image_demo.py` — generates toy NIfTI scans and exercises both raw-image training paths
 - `tests/` — unit, smoke, and CLI integration tests
-- `requirements.txt` — dependencies
+- `requirements.txt` — core Python dependencies; does not install Streamlit
+- `requirements-streamlit.txt` — optional browser-interface dependencies, including the core requirements
 
 ## Limitations
 
@@ -186,7 +193,7 @@ See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, prepro
 
 ## Visual interactive interface
 
-A Streamlit web interface is available in `app.py`. Run `python -m pip install -r requirements.txt` followed by `python -m streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
+A Streamlit web interface is available in `app.py`, but it is not part of the core installation. To use it, run `python -m pip install -r requirements-streamlit.txt` followed by `python -m streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
 
 ## License
 
