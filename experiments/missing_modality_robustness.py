@@ -262,6 +262,10 @@ def summarise_results(results: pd.DataFrame) -> pd.DataFrame:
         balanced_accuracy_std=("balanced_accuracy", "std"),
         macro_f1_mean=("macro_f1", "mean"),
         macro_f1_std=("macro_f1", "std"),
+        expected_calibration_error_mean=("expected_calibration_error", "mean"),
+        expected_calibration_error_std=("expected_calibration_error", "std"),
+        multiclass_brier_score_mean=("multiclass_brier_score", "mean"),
+        multiclass_brier_score_std=("multiclass_brier_score", "std"),
     ).reset_index()
     summary["condition"] = pd.Categorical(
         summary["condition"], categories=CONDITION_ORDER, ordered=True
