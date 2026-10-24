@@ -152,13 +152,29 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # visually hidden; click the visible label instead of the input.
                     page.get_by_text("Run trained model", exact=True).click()
                     page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
-                    def uploader_input(label: str):
-                        uploader = page.locator('[data-testid="stFileUploader"]').filter(
+                    def uploader(label: str):
+                        return page.locator('[data-testid="stFileUploader"]').filter(
                             has=page.get_by_text(label, exact=True)
                         )
-                        return uploader.locator('input[type="file"]')
 
-                    uploader_input("Model checkpoint (.pt)").set_input_files(str(checkpoint_path))
+                    def uploader_input(label: str):
+                        return uploader(label).locator('input[type="file"]')
+
+                    def upload_via_ui(label: str, file_path: Path):
+                        # Use the rendered uploader button and browser file chooser,
+                        # not only the hidden input's files property. This exercises the
+                        # same event path as an actual user selecting a file.
+                        container = uploader(label)
+                        buttons = container.get_by_role("button")
+                        self.assertGreater(
+                            buttons.count(), 0,
+                            f"No visible upload button found for uploader {label!r}.",
+                        )
+                        with page.expect_file_chooser(timeout=10_000) as chooser_info:
+                            buttons.last.click()
+                        chooser_info.value.set_files(str(file_path))
+
+                    upload_via_ui("Model checkpoint (.pt)", checkpoint_path)
                     page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
 
                     def wait_for_ui_text(expected: str, timeout_ms: int = 20_000):
@@ -190,7 +206,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
-                    uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
+                    upload_via_ui(
+                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
+                        scans / "P000_v0.nii.gz",
+                    )
                     wait_for_ui_text("Scan attached: P000_v0.nii.gz")
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     medicine_label = "M_medicine_name (category/text; leave blank if unavailable)"
@@ -214,7 +233,10 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
-                    uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
+                    upload_via_ui(
+                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
+                        scans / "P000_v1.nii.gz",
+                    )
                     wait_for_ui_text("Scan attached: P000_v1.nii.gz")
                     # Streamlit may not expose the selected filename as ordinary page
                     # text in every version/theme. Verify the actual file input instead.
