@@ -393,19 +393,46 @@ def main():
     metrics = evaluate(model, test_loader, device)
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), out / "raw_image_3dcnn.pt")
+    preprocessing = {
+        "modality": args.modality,
+        "image_size_voxels": int(args.image_size),
+        "target_spacing_mm": float(args.target_spacing_mm),
+        "orientation": "LPS before physical-space resampling",
+        "cube_policy": "center crop/pad after normalization; no anisotropic stretching",
+        "ct_window_low": float(args.ct_window_low) if args.modality == "ct" else None,
+        "ct_window_high": float(args.ct_window_high) if args.modality == "ct" else None,
+    }
+    checkpoint = {
+        "artifact_type": "multimodal-disease-progression.image-only-3dcnn",
+        "artifact_version": 1,
+        "architecture": "Small3DCNN",
+        "model_config": {"n_classes": 4},
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "preprocessing": preprocessing,
+        "class_labels": {"0": "stage_0", "1": "stage_1", "2": "stage_2", "3": "stage_3"},
+        "training": {
+            "seed": int(args.seed),
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "best_validation_loss": float(best_loss),
+            "selected_checkpoint_by": "lowest validation cross-entropy",
+        },
+    }
+    torch.save(checkpoint, out / "raw_image_3dcnn.pt")
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "supervised 3D scan classification",
         "input": "raw 3D medical volumes (NIfTI files or one-series-per-directory DICOM)",
+        "artifact": {
+            "path": "raw_image_3dcnn.pt",
+            "type": checkpoint["artifact_type"],
+            "version": checkpoint["artifact_version"],
+            "architecture": checkpoint["architecture"],
+        },
         "preprocessing": {
-            "modality": args.modality,
-            "image_size_voxels": args.image_size,
-            "target_spacing_mm": args.target_spacing_mm,
-            "orientation": "LPS before physical-space resampling",
-            "cube_policy": "center crop/pad after normalization; no anisotropic stretching",
-            "ct_window_low": args.ct_window_low if args.modality == "ct" else None,
-            "ct_window_high": args.ct_window_high if args.modality == "ct" else None,
+            **preprocessing,
             "note": "Images are reoriented to LPS and resampled to target_spacing_mm; fixed-size inputs are center-cropped/padded, which may crop anatomy. Validate field of view for the intended dataset."
         },
         "n_scans": len(frame), "n_patients": int(frame.patient_id.nunique()),
