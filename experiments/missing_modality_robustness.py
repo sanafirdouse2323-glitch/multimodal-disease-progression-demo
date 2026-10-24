@@ -97,17 +97,82 @@ def _loader(sequences: list[dict], batch_size: int, shuffle: bool = False) -> Da
     )
 
 
+def expected_calibration_error(y_true: np.ndarray, probabilities: np.ndarray,
+                              n_bins: int = 10) -> float:
+    """Compute top-label ECE with equal-width confidence bins."""
+    if n_bins < 1:
+        raise ValueError("n_bins must be positive")
+    y_true = np.asarray(y_true, dtype=np.int64)
+    probabilities = np.asarray(probabilities, dtype=np.float64)
+    if probabilities.ndim != 2 or probabilities.shape[0] != y_true.shape[0]:
+        raise ValueError("probabilities must have shape (n_samples, n_classes)")
+    if len(y_true) == 0:
+        raise ValueError("At least one label is required")
+    if not np.isfinite(probabilities).all():
+        raise ValueError("probabilities must be finite")
+    if np.any(probabilities < 0) or np.any(probabilities > 1):
+        raise ValueError("probabilities must lie between 0 and 1")
+    row_sums = probabilities.sum(axis=1)
+    if not np.allclose(row_sums, 1.0, atol=1e-5):
+        raise ValueError("each probability row must sum to one")
+
+    confidence = probabilities.max(axis=1)
+    predictions = probabilities.argmax(axis=1)
+    correct = (predictions == y_true).astype(np.float64)
+    boundaries = np.linspace(0.0, 1.0, n_bins + 1)
+    ece = 0.0
+    for bin_index in range(n_bins):
+        lower, upper = boundaries[bin_index], boundaries[bin_index + 1]
+        if bin_index == n_bins - 1:
+            in_bin = (confidence >= lower) & (confidence <= upper)
+        else:
+            in_bin = (confidence >= lower) & (confidence < upper)
+        if np.any(in_bin):
+            ece += float(in_bin.mean()) * abs(
+                float(correct[in_bin].mean()) - float(confidence[in_bin].mean())
+            )
+    return float(ece)
+
+
+def multiclass_brier_score(y_true: np.ndarray, probabilities: np.ndarray) -> float:
+    """Compute the mean multiclass Brier score (lower is better)."""
+    y_true = np.asarray(y_true, dtype=np.int64)
+    probabilities = np.asarray(probabilities, dtype=np.float64)
+    if probabilities.ndim != 2 or probabilities.shape[0] != y_true.shape[0]:
+        raise ValueError("probabilities must have shape (n_samples, n_classes)")
+    if len(y_true) == 0:
+        raise ValueError("At least one label is required")
+    if np.any(y_true < 0) or np.any(y_true >= probabilities.shape[1]):
+        raise ValueError("labels fall outside the probability class range")
+    targets = np.eye(probabilities.shape[1], dtype=np.float64)[y_true]
+    return float(np.mean(np.sum((probabilities - targets) ** 2, axis=1)))
+
+
 def evaluate_condition(model: nn.Module, sequences: list[dict], device: torch.device,
                        batch_size: int) -> dict[str, float | int]:
-    """Evaluate visit-level predictions for one held-out condition."""
-    result = demo.evaluate_torch_model(model, _loader(sequences, batch_size), device)
-    y_true = result["y_true"]
-    y_pred = result["y_pred"]
+    """Evaluate visit-level classification and calibration for one condition."""
+    model.eval()
+    all_y: list[int] = []
+    all_probabilities: list[np.ndarray] = []
+    with torch.no_grad():
+        for batch in _loader(sequences, batch_size):
+            batch = demo.move_batch(batch, device)
+            logits = model(batch)
+            valid = batch["labels"] != -100
+            probabilities = torch.softmax(logits, dim=-1)[valid]
+            all_probabilities.extend(probabilities.cpu().numpy())
+            all_y.extend(batch["labels"][valid].cpu().tolist())
+
+    y_true = np.asarray(all_y, dtype=np.int64)
+    probs = np.asarray(all_probabilities, dtype=np.float64)
+    y_pred = probs.argmax(axis=1)
     return {
         "n_visits": int(len(y_true)),
         "accuracy": float(accuracy_score(y_true, y_pred)),
         "balanced_accuracy": float(balanced_accuracy_score(y_true, y_pred)),
         "macro_f1": float(f1_score(y_true, y_pred, average="macro", zero_division=0)),
+        "expected_calibration_error": expected_calibration_error(y_true, probs),
+        "multiclass_brier_score": multiclass_brier_score(y_true, probs),
     }
 
 
