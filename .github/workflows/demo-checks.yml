@@ -50,6 +50,23 @@ jobs:
         run: python run_synthetic_raw_image_demo.py --output-dir raw_image_smoke_demo --patients 20 --epochs 1 --batch-size 2 --seed 42
       - name: Run complete synthetic demo
         run: python demo_disease_progression.py
+      - name: Verify saved synthetic checkpoint is portable and explicitly synthetic-only
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import torch
+
+          artifact_path = Path("results/synthetic_transformer.pt")
+          if not artifact_path.is_file():
+              raise SystemExit("Synthetic Transformer checkpoint was not created.")
+          artifact = torch.load(artifact_path, map_location="cpu", weights_only=True)
+          assert artifact.get("artifact_type") == "multimodal-disease-progression.synthetic-tabular-transformer"
+          assert artifact.get("artifact_version") == 1
+          assert artifact.get("data_scope") == "synthetic-generated-only"
+          assert artifact.get("feature_stats")
+          assert artifact.get("model_state_dict")
+          print(f"Validated synthetic-only model artifact: {artifact_path}")
+          PY
       - name: Upload generated results
         if: always()
         uses: actions/upload-artifact@v4
