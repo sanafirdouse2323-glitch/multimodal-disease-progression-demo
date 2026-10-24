@@ -77,15 +77,17 @@ Results are generated when you run the script; no scores are claimed in advance.
 
 ## Run the project in Replit
 
-This branch configures Replit's **Run** button to execute the core Python project with `python demo_disease_progression.py`. Streamlit is optional and is not required to train or evaluate this core synthetic demo.
+Replit-specific configuration is kept on the separate [`replit/standalone-workspace` branch](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo/tree/replit/standalone-workspace). This core development branch intentionally has no root `.replit` configuration. The dedicated Replit branch configures Replit's **Run** button to execute `python demo_disease_progression.py`; Streamlit remains optional and is not required for the core synthetic demo.
 
-1. In [Replit](https://replit.com/), choose **Import from GitHub** and import [this repository](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo).
-2. In the Replit Shell, switch to the development branch so you use this configuration and the separate CI workflows:
+1. In [Replit](https://replit.com/), create a **separate workspace** by importing [this repository](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo). Keep your existing Replit workspace unchanged if it contains separate work.
+2. In the new Replit Shell, select the dedicated Replit configuration branch:
 
    ```bash
    git fetch origin
-   git switch test/streamlit-browser-workflow
+   git switch replit/standalone-workspace
    ```
+
+   This branch holds the root `.replit` file; the core development branch does not. Keep workspaces separate by importing a second Replit workspace rather than switching branches in a workspace you want to leave untouched.
 
 3. Install dependencies in the Shell. The CPU-only PyTorch command is suitable for a CPU workspace:
 
