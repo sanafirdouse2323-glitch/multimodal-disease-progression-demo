@@ -223,15 +223,40 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Manifest is missing required columns: {sorted(missing)}")
     frame = frame.copy()
+    if frame.empty:
+        raise ValueError("Manifest has no rows.")
     if frame[list(required)].isna().any().any():
         raise ValueError("Manifest contains empty patient_id, image_path, or stage values.")
-    frame["patient_id"] = frame["patient_id"].astype(str)
-    numeric_stage = pd.to_numeric(frame["stage"], errors="raise")
-    if not np.all(numeric_stage == numeric_stage.astype(int)):
-        raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
-    frame["stage"] = numeric_stage.astype(int)
+    frame["patient_id"] = frame["patient_id"].astype(str).str.strip()
+    frame["image_path"] = frame["image_path"].astype(str).str.strip()
+    if (frame["patient_id"] == "").any() or (frame["image_path"] == "").any():
+        raise ValueError("patient_id and image_path must not be blank.")
+    stage_values = pd.to_numeric(frame["stage"], errors="raise").to_numpy(dtype=float)
+    if (not np.isfinite(stage_values).all()
+            or not np.equal(stage_values, np.floor(stage_values)).all()):
+        raise ValueError("stage labels must be finite integer values 0, 1, 2, or 3.")
+    frame["stage"] = stage_values.astype(np.int64)
     if not frame["stage"].isin([0, 1, 2, 3]).all():
         raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
+    if "visit_idx" in frame.columns:
+        visit_values = pd.to_numeric(frame["visit_idx"], errors="raise").to_numpy(dtype=float)
+        if (not np.isfinite(visit_values).all()
+                or not np.equal(visit_values, np.floor(visit_values)).all()
+                or (visit_values < 0).any()):
+            raise ValueError("visit_idx must contain non-negative integers.")
+        frame["visit_idx"] = visit_values.astype(np.int64)
+    if "time_months" in frame.columns:
+        time_values = pd.to_numeric(frame["time_months"], errors="raise").to_numpy(dtype=float)
+        if not np.isfinite(time_values).all() or (time_values < 0).any():
+            raise ValueError("time_months must contain finite, non-negative values.")
+        frame["time_months"] = time_values
+        if "visit_idx" in frame.columns:
+            ordered = frame.sort_values(["patient_id", "visit_idx"])
+            for patient_id, patient_visits in ordered.groupby("patient_id", sort=False):
+                if (np.diff(patient_visits["time_months"].to_numpy(dtype=float)) < 0).any():
+                    raise ValueError(
+                        f"time_months must not decrease across visits for patient {patient_id!r}."
+                    )
     def resolve_path(value):
         path = Path(str(value)).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
