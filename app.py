@@ -155,7 +155,24 @@ elif mode == "Run trained model":
                 min_value=0.0, value=0.0, step=1.0,
                 key=f"guided_time_months_{st.session_state.guided_form_version}",
             )
-        scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
+        upload_col, clear_upload_col = st.columns([5, 1])
+        with upload_col:
+            scan_upload = st.file_uploader(
+                "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
+                type=["nii", "gz", "mha", "nrrd"],
+                key=f"guided_scan_upload_{st.session_state.guided_form_version}",
+            )
+        with clear_upload_col:
+            st.write("")
+            st.write("")
+            if st.button(
+                "Reset scan",
+                key=f"guided_reset_scan_{st.session_state.guided_form_version}",
+                help="Clear the selected scan if you chose the wrong file.",
+                disabled=scan_upload is None,
+            ):
+                st.session_state[f"guided_scan_upload_{st.session_state.guided_form_version}"] = None
+                st.rerun()
         st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
         grouped_fields = {
             "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
