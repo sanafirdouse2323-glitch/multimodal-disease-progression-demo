@@ -4,10 +4,10 @@ import unittest
 import numpy as np
 
 import demo_disease_progression as demo
-from experiments import missing_modality_robustness as experiment
+from experiments import missing_feature group_robustness as experiment
 
 
-class MissingModalityExperimentTests(unittest.TestCase):
+class MissingFeatureGroupExperimentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         raw = demo.generate_demo_dataset(n_patients=12, seed=123)
@@ -17,10 +17,10 @@ class MissingModalityExperimentTests(unittest.TestCase):
         transformed = demo.transform_features(raw, means, stds)
         cls.sequences = demo.make_sequences(transformed)
 
-    def test_remove_modality_zeros_values_and_observation_masks(self):
+    def test_remove_feature_group_zeros_values_and_observation_masks(self):
         original = self.sequences[0]
         original_copy = {key: value.copy() for key, value in original.items()}
-        masked = experiment.remove_modalities([original], ["wearable"])[0]
+        masked = experiment.remove_feature_groups([original], ["wearable"])[0]
 
         self.assertTrue(np.all(masked["wearable"] == 0))
         self.assertTrue(np.all(masked["wearable_mask"] == 0))
@@ -32,24 +32,24 @@ class MissingModalityExperimentTests(unittest.TestCase):
         for key, value in original_copy.items():
             np.testing.assert_array_equal(original[key], value)
 
-    def test_unknown_modality_is_rejected(self):
+    def test_unknown_feature_group_is_rejected(self):
         with self.assertRaises(ValueError):
-            experiment.remove_modalities(self.sequences, ["unknown_group"])
+            experiment.remove_feature_groups(self.sequences, ["unknown_group"])
 
-    def test_modality_dropout_changes_a_copy_without_mutating_source(self):
+    def test_feature_group_dropout_changes_a_copy_without_mutating_source(self):
         source = self.sequences[0]
         source_copy = {key: value.copy() for key, value in source.items()}
         random.seed(10)
-        dataset = experiment.ModalityDropoutDataset(self.sequences, probability=1.0)
+        dataset = experiment.FeatureGroupDropoutDataset(self.sequences, probability=1.0)
         dropped = dataset[0]
 
         changed = [
-            name for name in experiment.MODALITIES
+            name for name in experiment.FEATURE_GROUPS
             if not np.array_equal(dropped[name], source[name])
             or not np.array_equal(dropped[f"{name}_mask"], source[f"{name}_mask"])
         ]
         self.assertGreaterEqual(len(changed), 1)
-        self.assertLess(len(changed), len(experiment.MODALITIES))
+        self.assertLess(len(changed), len(experiment.FEATURE_GROUPS))
         for name in changed:
             self.assertTrue(np.all(dropped[name] == 0))
             self.assertTrue(np.all(dropped[f"{name}_mask"] == 0))
@@ -76,7 +76,7 @@ class MissingModalityExperimentTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             experiment.expected_calibration_error(y_true, np.array([[0.2, 0.2]]))
 
-    def test_evaluation_conditions_include_complete_and_each_single_missing_modality(self):
+    def test_evaluation_conditions_include_complete_and_each_single_missing_feature_group(self):
         conditions = experiment.make_conditions(self.sequences)
         self.assertEqual(tuple(conditions), experiment.CONDITION_ORDER)
         self.assertEqual(set(conditions), {
