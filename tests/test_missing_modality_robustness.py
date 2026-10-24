@@ -56,6 +56,26 @@ class MissingModalityExperimentTests(unittest.TestCase):
         for key, value in source_copy.items():
             np.testing.assert_array_equal(source[key], value)
 
+    def test_calibration_metrics_are_finite_and_validate_probability_rows(self):
+        y_true = np.array([0, 1, 1, 0], dtype=np.int64)
+        probabilities = np.array([
+            [0.8, 0.2],
+            [0.4, 0.6],
+            [0.3, 0.7],
+            [0.9, 0.1],
+        ])
+        ece = experiment.expected_calibration_error(y_true, probabilities, n_bins=5)
+        brier = experiment.multiclass_brier_score(y_true, probabilities)
+        self.assertGreaterEqual(ece, 0.0)
+        self.assertLessEqual(ece, 1.0)
+        self.assertGreaterEqual(brier, 0.0)
+        self.assertLessEqual(brier, 2.0)
+
+        with self.assertRaises(ValueError):
+            experiment.expected_calibration_error(y_true, probabilities * 2.0)
+        with self.assertRaises(ValueError):
+            experiment.expected_calibration_error(y_true, np.array([[0.2, 0.2]]))
+
     def test_evaluation_conditions_include_complete_and_each_single_missing_modality(self):
         conditions = experiment.make_conditions(self.sequences)
         self.assertEqual(tuple(conditions), experiment.CONDITION_ORDER)
