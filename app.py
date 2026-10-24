@@ -160,6 +160,17 @@ elif mode == "Run trained model":
             type=["nii", "gz", "mha", "nrrd"],
             key=f"guided_scan_upload_{st.session_state.guided_form_version}",
         )
+        # Store upload bytes as soon as Streamlit delivers them. The uploader's widget
+        # value is ephemeral across keyed-widget replacement, so submission reads a
+        # durable per-visit snapshot from session state instead.
+        if scan_upload is not None:
+            st.session_state[f"guided_scan_bytes_{st.session_state.guided_form_version}"] = {
+                "name": scan_upload.name,
+                "bytes": scan_upload.getvalue(),
+            }
+        scan_snapshot = st.session_state.get(
+            f"guided_scan_bytes_{st.session_state.guided_form_version}"
+        )
         st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
         grouped_fields = {
             "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
@@ -196,19 +207,19 @@ elif mode == "Run trained model":
                 st.error("Enter a pseudonymous patient ID.")
             elif int(visit_idx_input) == 0 and float(time_months_input) != 0.0:
                 st.error("For baseline visit index 0, months since baseline must be 0.")
-            elif scan_upload is None:
+            elif scan_snapshot is None:
                 st.error("Attach the scan for this visit.")
             elif any(str(v["patient_id"]) == pid and int(v["visit_idx"]) == int(visit_idx_input) for v in st.session_state.guided_visits):
                 st.error("That patient already has this visit index. Choose a different visit index or remove the existing row.")
             else:
                 safe_pid = re.sub(r"[^A-Za-z0-9_-]+", "_", pid).strip("_") or "patient"
-                original_name = Path(scan_upload.name).name
+                original_name = Path(scan_snapshot["name"]).name
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name) or "scan.bin"
                 archive_path = f"scans/entry{len(st.session_state.guided_visits) + 1:04d}_{safe_pid}_visit{int(visit_idx_input)}_{safe_name}"
                 row = {
                     "patient_id": pid, "image_path": archive_path,
                     "visit_idx": int(visit_idx_input), "time_months": float(time_months_input),
-                    "_scan_name": archive_path, "_scan_bytes": scan_upload.getvalue(),
+                    "_scan_name": archive_path, "_scan_bytes": scan_snapshot["bytes"],
                 }
                 numeric_fields = set((checkpoint_metadata.get("feature_schema") or {}).get("numeric_columns", checkpoint_metadata.get("feature_columns", [])))
                 invalid = []
