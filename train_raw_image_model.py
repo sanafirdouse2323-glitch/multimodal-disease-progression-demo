@@ -363,12 +363,17 @@ def main():
             optimizer.step()
             losses.append(float(loss.item()))
         model.eval()
-        valid_losses = []
+        valid_loss_sum, valid_count = 0.0, 0
         with torch.no_grad():
             for images, labels in valid_loader:
                 images, labels = images.to(device), labels.to(device)
-                valid_losses.append(float(criterion(model(images), labels).item()))
-        val_loss = float(np.mean(valid_losses))
+                batch_loss = criterion(model(images), labels)
+                batch_count = int(labels.numel())
+                valid_loss_sum += float(batch_loss.item()) * batch_count
+                valid_count += batch_count
+        if valid_count == 0:
+            raise ValueError("Validation split contains no scans.")
+        val_loss = valid_loss_sum / valid_count
         history.append({"epoch": epoch, "train_loss": float(np.mean(losses)), "validation_loss": val_loss})
         print(f"Epoch {epoch:02d}: train_loss={np.mean(losses):.4f}, validation_loss={val_loss:.4f}")
         if val_loss < best_loss:
