@@ -109,6 +109,11 @@ class RawImagePipelineTests(unittest.TestCase):
             invalid_time["time_months"] = [6.0, 0.0]
             with self.assertRaisesRegex(ValueError, "time_months must not decrease"):
                 validate_manifest(invalid_time, Path(directory))
+            duplicate_scan = frame.copy()
+            duplicate_scan.loc[1, "patient_id"] = "P2"
+            duplicate_scan.loc[1, "image_path"] = "scan0.nii.gz"
+            with self.assertRaisesRegex(ValueError, "assigned to multiple patient_id"):
+                validate_manifest(duplicate_scan, Path(directory))
 
     def test_manifest_resolves_relative_paths_and_rejects_bad_stage(self):
         frame = pd.DataFrame({"patient_id": ["P1"], "image_path": ["scan.nii.gz"], "stage": [2]})
