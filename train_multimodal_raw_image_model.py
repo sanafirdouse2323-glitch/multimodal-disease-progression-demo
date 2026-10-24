@@ -118,6 +118,9 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
     frame["image_path"] = frame["image_path"].map(resolve_path)
+    patient_owners = frame.groupby("image_path")["patient_id"].nunique()
+    if (patient_owners > 1).any():
+        raise ValueError("An image_path cannot be assigned to multiple patient_id values.")
     for path in frame["image_path"]:
         if not Path(path).exists():
             raise FileNotFoundError(f"Image path in manifest does not exist: {path}")
