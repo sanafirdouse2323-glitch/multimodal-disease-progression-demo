@@ -155,36 +155,52 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # visually hidden; click the visible label instead of the input.
                     page.get_by_text("Run trained model", exact=True).click()
                     page.get_by_text("Guided entry: add one scan visit at a time").wait_for()
-                    def uploader_input(label: str):
+                    def uploader_container(label: str):
                         # Locate the uploader from its rendered label text, then query
-                        # the nearest uploader component. Streamlit versions can place
-                        # the label outside the element carrying data-testid="stFileUploader",
-                        # so filtering the component container by descendant text is brittle.
+                        # the nearest component. Streamlit versions can place the label
+                        # outside the element carrying data-testid="stFileUploader".
                         label_node = page.get_by_text(label, exact=True)
                         label_node.wait_for(state="visible")
                         container = label_node.locator(
                             "xpath=ancestor::*[@data-testid='stFileUploader'][1]"
                         )
                         if container.count() == 0:
-                            # Fallback for Streamlit DOM versions where the label is a
-                            # sibling: find the nearest block containing this exact label.
                             container = page.locator(
                                 "[data-testid='stFileUploader']"
                             ).filter(has_text=label)
-                        return container.locator('input[type="file"]')
+                        self.assertEqual(
+                            container.count(), 1,
+                            f"Expected one uploader container for {label!r}; "
+                            f"containers={page.locator('[data-testid=stFileUploader]').count()}",
+                        )
+                        return container
+
+                    def uploader_input(label: str):
+                        return uploader_container(label).locator('input[type="file"]')
 
                     def upload_via_ui(label: str, file_path: Path):
-                        # Streamlit's uploader input is hidden; Playwright sets the file
-                        # and emits the browser input/change events. The test then waits
-                        # for a server-rendered acknowledgement, so DOM-only file state
-                        # is not treated as proof of a successful upload.
+                        # Exercise the same visible control a user clicks. The old
+                        # hidden-input shortcut left Streamlit's server-side uploader
+                        # state empty even though the browser test had set a file path.
+                        container = uploader_container(label)
+                        choose_button = container.get_by_role("button").first
+                        self.assertEqual(
+                            choose_button.count(), 1,
+                            f"Could not find the visible choose-file control for {label!r}",
+                        )
+                        with page.expect_file_chooser(timeout=15_000) as chooser_event:
+                            choose_button.click()
+                        chooser_event.value.set_files(str(file_path))
                         file_input = uploader_input(label)
                         self.assertEqual(
                             file_input.count(), 1,
-                            f"Expected one file input for uploader {label!r}; "
-                            f"matching inputs={page.locator('[data-testid=stFileUploader] input[type=file]').count()}",
+                            f"Expected one file input for uploader {label!r}",
                         )
-                        file_input.set_input_files(str(file_path))
+                        self.assertIn(
+                            file_path.name,
+                            file_input.evaluate("(el) => Array.from(el.files || []).map(file => file.name)"),
+                            f"Browser file chooser did not retain {file_path.name!r}",
+                        )
 
                     upload_via_ui("Model checkpoint (.pt)", checkpoint_path)
                     page.get_by_text("Checkpoint recognised.", exact=False).wait_for(timeout=30_000)
