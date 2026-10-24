@@ -103,6 +103,10 @@ See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, prepro
 
 A Streamlit web interface is available in `app.py`. Run `python -m pip install -r requirements.txt` followed by `streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
 
+## Research-inspired whole-feature-group missingness experiment
+
+For a focused experiment aligned with trustworthy multimodal learning and disease-progression research, see [the missing-group robustness experiment](experiments/README.md). It compares standard training with whole-feature-group dropout on synthetic longitudinal data, tests each group-missing condition, and reports classification plus calibration metrics. It is explicitly a synthetic code demonstration, not a reproduction of the cited papers or a clinical validation study.
+
 ## License
 
 No open-source license has been selected yet. Until one is added, do not assume the repository is licensed for reuse beyond rights granted by applicable law.
