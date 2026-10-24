@@ -183,21 +183,14 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     def spinbutton(label: str):
                         return page.get_by_role("spinbutton", name=label, exact=True)
 
-                    # Baseline visit.
+                    # Baseline visit. Stage every field before adding so Streamlit has
+                    # applied browser widget state to the current script run.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("0")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
                     spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
-                    baseline_scan_files = uploader_input(
-                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)"
-                    ).evaluate("(el) => Array.from(el.files || []).map(file => file.name)")
-                    self.assertIn(
-                        "P000_v0.nii.gz",
-                        baseline_scan_files,
-                        f"Baseline scan not selected in the browser file input: {baseline_scan_files}",
-                    )
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
                     medicine_label = "M_medicine_name (category/text; leave blank if unavailable)"
                     medicine_box = textbox(medicine_label)
@@ -205,6 +198,12 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                         page.get_by_text("Medicine features", exact=True).click()
                         medicine_box.wait_for(state="visible")
                     medicine_box.fill("MedicineA")
+                    # Confirm the uploader retained the selected file. Do not rely on
+                    # Streamlit's rendered filename text, which is theme/version-dependent.
+                    baseline_scan_files = uploader_input(
+                        "Scan for this visit (3D image file, e.g. .nii or .nii.gz)"
+                    ).evaluate("(el) => Array.from(el.files || []).map(file => file.name)")
+                    self.assertIn("P000_v0.nii.gz", baseline_scan_files)
                     page.get_by_role("button", name="Add this visit to the review table").click()
                     wait_for_ui_text("Visits in review table: 1")
 
