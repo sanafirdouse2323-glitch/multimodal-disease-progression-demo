@@ -38,6 +38,8 @@ jobs:
         env:
           SKIP_STREAMLIT_BROWSER_TEST: "1"
         run: python -m unittest discover -s tests -p 'test_raw_checkpoint_integration.py' -v
+      - name: Run end-to-end smoke test for both raw-image pipelines
+        run: python run_synthetic_raw_image_demo.py --output-dir raw_image_smoke_demo --patients 20 --epochs 1 --batch-size 2 --seed 42
       - name: Run complete synthetic demo
         run: python demo_disease_progression.py
       - name: Upload generated results
@@ -46,4 +48,11 @@ jobs:
         with:
           name: synthetic-demo-results
           path: results/
+          if-no-files-found: warn
+      - name: Upload synthetic raw-image smoke outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-raw-image-smoke-results
+          path: raw_image_smoke_demo/
           if-no-files-found: warn
