@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
+import torch
 
 from train_raw_image_model import main
 
@@ -38,7 +39,15 @@ class RawImageTrainingSmokeTest(unittest.TestCase):
             ]
             with patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 main()
-            self.assertTrue((output / "raw_image_3dcnn.pt").is_file())
+            checkpoint_path = output / "raw_image_3dcnn.pt"
+            self.assertTrue(checkpoint_path.is_file())
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+            self.assertEqual(checkpoint.get("artifact_type"),
+                             "multimodal-disease-progression.image-only-3dcnn")
+            self.assertEqual(checkpoint.get("artifact_version"), 1)
+            self.assertEqual(checkpoint.get("architecture"), "Small3DCNN")
+            self.assertEqual(checkpoint["preprocessing"]["image_size_voxels"], 16)
+            self.assertIn("model_state_dict", checkpoint)
             self.assertTrue((output / "training_history.csv").is_file())
             summary = json.loads((output / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["task"], "supervised 3D scan classification")
