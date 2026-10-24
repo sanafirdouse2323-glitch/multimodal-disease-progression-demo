@@ -222,3 +222,6 @@ __marimo__/
 # Generated experiment outputs
 results/
 raw_image_smoke_demo/
+raw_image_results/
+multimodal_raw_results/
+raw_image_predictions.csv
