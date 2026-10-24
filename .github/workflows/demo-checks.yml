@@ -25,14 +25,22 @@ jobs:
       - name: Install project dependencies
         run: python -m pip install -r requirements.txt
       - name: Compile application, core, and raw-image scripts
-        run: python -m py_compile app.py demo_disease_progression.py train_raw_image_model.py train_multimodal_raw_image_model.py predict_multimodal_raw_image_model.py run_synthetic_raw_image_demo.py
+        run: python -m py_compile app.py demo_disease_progression.py train_raw_image_model.py predict_raw_image_model.py train_multimodal_raw_image_model.py predict_multimodal_raw_image_model.py run_synthetic_raw_image_demo.py
       - name: Validate synthetic raw-image runner command
         run: python run_synthetic_raw_image_demo.py --help
+      - name: Verify installable project metadata and CLI entry points
+        run: |
+          python -m pip install --no-deps .
+          mdp-train-image --help
+          mdp-predict-image --help
+          mdp-train-multimodal --help
+          mdp-predict-multimodal --help
       - name: Run existing unit tests
         run: |
           python -m unittest discover -s tests -p 'test_demo.py' -v
           python -m unittest discover -s tests -p 'test_multimodal_raw_image_model.py' -v
           python -m unittest discover -s tests -p 'test_raw_image_model.py' -v
+          python -m unittest discover -s tests -p 'test_raw_image_prediction.py' -v
           python -m unittest discover -s tests -p 'test_raw_image_training_smoke.py' -v
       - name: Train checkpoint and verify two-visit CLI inference (no Streamlit)
         env:
