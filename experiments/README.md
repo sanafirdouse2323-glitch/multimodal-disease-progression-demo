@@ -41,7 +41,7 @@ Options are available for patient count, epoch count, batch size, learning rate,
 ## Outputs and metrics
 
 - `run_level_metrics.csv`: every run, training strategy, and test condition.
-- `summary_by_condition.csv`: mean and standard deviation across seeds for accuracy, balanced accuracy, and macro-F1.
+- `summary_by_condition.csv`: mean and standard deviation across seeds for accuracy, balanced accuracy, macro-F1, expected calibration error, and multiclass Brier score.
 - `macro_f1_by_missing_modality.png`: plotted macro-F1 by condition and training strategy, with across-run standard-deviation error bars.
 - `run_summary.json`: configuration, split sizes, conditions, and interpretation limits.
 - `history_seed_*_*.csv`: training and validation-loss history for each strategy/run.
