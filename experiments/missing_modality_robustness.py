@@ -1,4 +1,4 @@
-"""Evaluate whole-modality missingness in the synthetic longitudinal demo.
+"""Evaluate whole-feature-group missingness in the synthetic longitudinal demo.
 
 This experiment is inspired by research on longitudinal multimodal prediction
 with missingness. It is not a reproduction of that paper or a clinical study.
@@ -28,33 +28,33 @@ if str(ROOT) not in sys.path:
 
 import demo_disease_progression as demo  # noqa: E402
 
-MODALITIES = tuple(demo.GROUPS.keys())
-CONDITION_ORDER = ("complete",) + tuple(f"without_{name}" for name in MODALITIES)
-DEFAULT_OUTPUT_DIR = ROOT / "results" / "missing_modality_robustness"
+FEATURE_GROUPS = tuple(demo.GROUPS.keys())
+CONDITION_ORDER = ("complete",) + tuple(f"without_{name}" for name in FEATURE_GROUPS)
+DEFAULT_OUTPUT_DIR = ROOT / "results" / "missing_feature_group_robustness"
 
 
-def remove_modalities(sequences: list[dict], modalities: tuple[str, ...] | list[str]) -> list[dict]:
-    """Return copies with selected modalities entirely unavailable at every visit.
+def remove_feature_groups(sequences: list[dict], feature groups: tuple[str, ...] | list[str]) -> list[dict]:
+    """Return copies with selected feature groups entirely unavailable at every visit.
 
     Both scaled values and per-feature observation indicators are cleared. Labels,
-    visit times, other modalities, and the original sequences are left unchanged.
+    visit times, other feature groups, and the original sequences are left unchanged.
     """
-    unknown = set(modalities) - set(MODALITIES)
+    unknown = set(feature groups) - set(FEATURE_GROUPS)
     if unknown:
-        raise ValueError(f"Unknown modality names: {sorted(unknown)}")
+        raise ValueError(f"Unknown feature group names: {sorted(unknown)}")
 
     result: list[dict] = []
     for sequence in sequences:
         masked = dict(sequence)
-        for name in modalities:
+        for name in feature groups:
             masked[name] = np.zeros_like(sequence[name])
             masked[f"{name}_mask"] = np.zeros_like(sequence[f"{name}_mask"])
         result.append(masked)
     return result
 
 
-class ModalityDropoutDataset(Dataset):
-    """Apply stochastic whole-modality dropout to training trajectories only."""
+class FeatureGroupDropoutDataset(Dataset):
+    """Apply stochastic whole-feature group dropout to training trajectories only."""
 
     def __init__(self, sequences: list[dict], probability: float = 0.20):
         if not 0.0 <= probability <= 1.0:
@@ -68,10 +68,10 @@ class ModalityDropoutDataset(Dataset):
     def __getitem__(self, index: int) -> dict:
         source = self.sequences[index]
         item = dict(source)
-        dropped = [name for name in MODALITIES if random.random() < self.probability]
-        # Keep at least one modality available. Complete loss is not the condition
+        dropped = [name for name in FEATURE_GROUPS if random.random() < self.probability]
+        # Keep at least one feature group available. Complete loss is not the condition
         # this experiment is designed to evaluate.
-        if len(dropped) == len(MODALITIES) and dropped:
+        if len(dropped) == len(FEATURE_GROUPS) and dropped:
             dropped.pop(random.randrange(len(dropped)))
         for name in dropped:
             item[name] = np.zeros_like(source[name])
@@ -80,10 +80,10 @@ class ModalityDropoutDataset(Dataset):
 
 
 def make_conditions(sequences: list[dict]) -> dict[str, list[dict]]:
-    """Create complete-input and leave-one-modality-out evaluation conditions."""
+    """Create complete-input and leave-one-feature-group-out evaluation conditions."""
     conditions = {"complete": sequences}
-    for name in MODALITIES:
-        conditions[f"without_{name}"] = remove_modalities(sequences, [name])
+    for name in FEATURE_GROUPS:
+        conditions[f"without_{name}"] = remove_feature_groups(sequences, [name])
     return conditions
 
 
@@ -183,16 +183,16 @@ def train_experiment_model(
     epochs: int,
     batch_size: int,
     learning_rate: float,
-    modality_dropout_probability: float,
+    feature_group_dropout_probability: float,
 ) -> tuple[nn.Module, list[dict]]:
     """Train a model; choose checkpoints using identical validation conditions.
 
     Both training strategies are selected using the mean validation loss across
-    complete input and all single-modality-missing conditions. The test set is
+    complete input and all single-feature group-missing conditions. The test set is
     not used for checkpoint selection.
     """
-    if modality_dropout_probability > 0:
-        train_dataset = ModalityDropoutDataset(train_sequences, modality_dropout_probability)
+    if feature_group_dropout_probability > 0:
+        train_dataset = FeatureGroupDropoutDataset(train_sequences, feature_group_dropout_probability)
     else:
         train_dataset = demo.PatientDataset(train_sequences)
     train_loader = DataLoader(
@@ -270,7 +270,7 @@ def summarise_results(results: pd.DataFrame) -> pd.DataFrame:
     summary["condition"] = pd.Categorical(
         summary["condition"], categories=CONDITION_ORDER, ordered=True
     )
-    strategy_order = {"standard": 0, "modality_dropout": 1}
+    strategy_order = {"standard": 0, "feature_group_dropout": 1}
     summary["_strategy_order"] = summary["strategy"].map(strategy_order)
     return summary.sort_values(["condition", "_strategy_order"]).drop(
         columns=["_strategy_order"]
@@ -283,7 +283,7 @@ def save_plot(summary: pd.DataFrame, path: Path) -> None:
     width = 0.36
     for offset, strategy, label in [
         (-width / 2, "standard", "Standard training"),
-        (width / 2, "modality_dropout", "Modality-dropout training"),
+        (width / 2, "feature_group_dropout", "Feature group-dropout training"),
     ]:
         subset = summary[summary["strategy"] == strategy].set_index("condition").reindex(
             CONDITION_ORDER
@@ -291,11 +291,11 @@ def save_plot(summary: pd.DataFrame, path: Path) -> None:
         means = subset["macro_f1_mean"].to_numpy(dtype=float)
         stds = subset["macro_f1_std"].fillna(0.0).to_numpy(dtype=float)
         ax.bar(x + offset, means, width, yerr=stds, capsize=3, label=label)
-    labels = ["Complete"] + [f"No {name.replace('_', ' ').title()}" for name in MODALITIES]
+    labels = ["Complete"] + [f"No {name.replace('_', ' ').title()}" for name in FEATURE_GROUPS]
     ax.set_xticks(x, labels, rotation=20, ha="right")
     ax.set_ylabel("Macro-F1 (mean across runs; error bars = SD)")
     ax.set_ylim(0, 1)
-    ax.set_title("Synthetic held-out performance when whole modalities are unavailable")
+    ax.set_title("Synthetic held-out performance when whole feature groups are unavailable")
     ax.legend()
     ax.grid(axis="y", alpha=0.25)
     fig.tight_layout()
@@ -354,7 +354,7 @@ def run(args: argparse.Namespace) -> None:
 
         for strategy, dropout_probability in [
             ("standard", 0.0),
-            ("modality_dropout", args.dropout_probability),
+            ("feature_group_dropout", args.dropout_probability),
         ]:
             # Matched initialisation/training seed makes the strategy comparison
             # easier to interpret; only the data augmentation differs.
@@ -367,7 +367,7 @@ def run(args: argparse.Namespace) -> None:
                 epochs=args.epochs,
                 batch_size=args.batch_size,
                 learning_rate=args.learning_rate,
-                modality_dropout_probability=dropout_probability,
+                feature_group_dropout_probability=dropout_probability,
             )
             pd.DataFrame(history).to_csv(
                 output_dir / f"history_seed_{seed}_{strategy}.csv", index=False
@@ -379,7 +379,7 @@ def run(args: argparse.Namespace) -> None:
                     "seed": seed,
                     "strategy": strategy,
                     "condition": condition,
-                    "missing_modalities": ",".join(
+                    "missing_feature_groups": ",".join(
                         [condition.replace("without_", "")] if condition != "complete" else []
                     ),
                     "n_test_patients": len(test_ids),
@@ -395,9 +395,9 @@ def run(args: argparse.Namespace) -> None:
     summary = summarise_results(results)
     results.to_csv(output_dir / "run_level_metrics.csv", index=False)
     summary.to_csv(output_dir / "summary_by_condition.csv", index=False)
-    save_plot(summary, output_dir / "macro_f1_by_missing_modality.png")
+    save_plot(summary, output_dir / "macro_f1_by_missing_feature group.png")
     report = {
-        "experiment": "whole-modality missingness robustness",
+        "experiment": "whole-feature group missingness robustness",
         "data": "synthetic only",
         "prediction_target": "synthetic disease stage at an observed visit",
         "not_claimed": [
@@ -411,14 +411,14 @@ def run(args: argparse.Namespace) -> None:
         "epochs": args.epochs,
         "batch_size": args.batch_size,
         "learning_rate": args.learning_rate,
-        "modality_dropout_probability_per_modality": args.dropout_probability,
+        "feature_group_dropout_probability_per_feature group": args.dropout_probability,
         "model_selection": (
             "Checkpoint selected by mean validation loss across complete input and "
-            "each leave-one-modality-out condition; test data are not used for selection."
+            "each leave-one-feature-group-out condition; test data are not used for selection."
         ),
         "split_counts": split_counts,
         "conditions": list(CONDITION_ORDER),
-        "strategies": ["standard", "modality_dropout"],
+        "strategies": ["standard", "feature_group_dropout"],
         "references": [
             {
                 "citation": "Chen, Oliva, and Niethammer, MICCAI 2024, "
@@ -443,7 +443,7 @@ def run(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Compare standard training with whole-modality dropout on synthetic data."
+        description="Compare standard training with whole-feature group dropout on synthetic data."
     )
     parser.add_argument("--n-patients", type=int, default=500)
     parser.add_argument("--epochs", type=int, default=10)
