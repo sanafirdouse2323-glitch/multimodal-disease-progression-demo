@@ -347,6 +347,59 @@ def train_model(train_sequences, valid_sequences, device, epochs=18, batch_size=
     return model, history
 
 
+def build_synthetic_transformer_checkpoint(model, means, stds, seed: int, history: list[dict]) -> dict:
+    """Bundle the synthetic Transformer weights with their exact input preprocessing."""
+    feature_columns = [col for columns in GROUPS.values() for col in columns]
+    best_validation_loss = min(
+        (float(row["val_loss"]) for row in history if np.isfinite(float(row["val_loss"]))),
+        default=None,
+    )
+    return {
+        "artifact_type": "multimodal-disease-progression.synthetic-tabular-transformer",
+        "artifact_version": 1,
+        "architecture": "MultimodalTemporalModel",
+        "model_config": {
+            "hidden_dim": 32,
+            "n_heads": 4,
+            "n_classes": 4,
+            "num_temporal_layers": 2,
+            "feedforward_multiplier": 2,
+            "dropout": 0.1,
+            "batch_first": True,
+            "norm_first": True,
+        },
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "feature_groups": {name: list(columns) for name, columns in GROUPS.items()},
+        "feature_columns": feature_columns,
+        "feature_stats": {
+            col: {"mean": float(means[col]), "std": float(stds[col])}
+            for col in feature_columns
+        },
+        "preprocessing": {
+            "standardization_statistics_fit_on": "training patients only",
+            "missingness_indicators": True,
+            "missing_value_fill_after_scaling": 0.0,
+            "time_scale_months": 12.0,
+            "task": "classify current stage from current and prior visits",
+        },
+        "class_labels": {"0": "stage_0", "1": "stage_1", "2": "stage_2", "3": "stage_3"},
+        "training": {
+            "seed": int(seed),
+            "epochs_completed": len(history),
+            "best_validation_loss": best_validation_loss,
+            "selected_checkpoint_by": "lowest validation cross-entropy",
+        },
+        "data_scope": "synthetic-generated-only",
+        "limitations": [
+            "This artifact was trained on this repository's synthetic data generator only.",
+            "It is not a clinical model and must not be used to make predictions on real patients.",
+            "Evaluation on the synthetic generator is not evidence of external or clinical validity.",
+        ],
+    }
+
+
 def flatten_visit_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
     """Flatten visits for baselines, including explicit missingness indicators."""
     cols = [col for group in GROUPS.values() for col in group]
@@ -391,6 +444,11 @@ def main():
     print(f"Device: {device}; patients: train={len(train_ids)}, validation={len(valid_ids)}, test={len(test_ids)}")
 
     model, history = train_model(train_sequences, valid_sequences, device=device)
+    synthetic_checkpoint = build_synthetic_transformer_checkpoint(
+        model, means, stds, seed=SEED, history=history
+    )
+    checkpoint_path = OUTPUT_DIR / "synthetic_transformer.pt"
+    torch.save(synthetic_checkpoint, checkpoint_path)
     test_loader = DataLoader(PatientDataset(test_sequences), batch_size=16, shuffle=False,
                              collate_fn=collate_sequences)
     neural = evaluate_torch_model(model, test_loader, device)
@@ -443,7 +501,15 @@ def main():
 
     report = {
         "seed": SEED, "n_patients": int(df.patient_id.nunique()),
-        "n_visits": int(len(df)), "split_patient_counts": {
+        "n_visits": int(len(df)),
+        "model_artifact": {
+            "path": "synthetic_transformer.pt",
+            "type": synthetic_checkpoint["artifact_type"],
+            "version": synthetic_checkpoint["artifact_version"],
+            "architecture": synthetic_checkpoint["architecture"],
+            "data_scope": synthetic_checkpoint["data_scope"],
+        },
+        "split_patient_counts": {
             "train": len(train_ids), "validation": len(valid_ids), "test": len(test_ids)
         },
         "test_metrics": baseline_rows,
@@ -460,7 +526,7 @@ def main():
     (OUTPUT_DIR / "run_summary.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     print("\nHeld-out test metrics (synthetic data only):")
     print(pd.DataFrame(baseline_rows).to_string(index=False))
-    print(f"\nSaved metrics and plots in: {OUTPUT_DIR.resolve()}")
+    print(f"\nSaved metrics, plots, and synthetic checkpoint in: {OUTPUT_DIR.resolve()}")
     print("Reminder: these synthetic results are not evidence of clinical validity.")
 
 
