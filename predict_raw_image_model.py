@@ -170,7 +170,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True, help="Versioned raw_image_3dcnn.pt from training")
     parser.add_argument("--manifest", required=True, help="CSV with patient_id,image_path and optional visit metadata")
-    parser.add_argument("--output", default="raw_image_predictions.csv", help="Destination CSV path")
+    parser.add_argument("--output", default="raw_image_only_predictions.csv", help="Destination CSV path")
     parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     args = parser.parse_args()
 
