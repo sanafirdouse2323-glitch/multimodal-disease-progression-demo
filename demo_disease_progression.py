@@ -285,19 +285,23 @@ def move_batch(batch, device):
 
 def evaluate_torch_model(model, loader, device):
     model.eval()
-    losses, all_y, all_pred = [], [], []
+    total_loss, total_targets = 0.0, 0
+    all_y, all_pred = [], []
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
     with torch.no_grad():
         for batch in loader:
             batch = move_batch(batch, device)
             logits = model(batch)
-            loss = criterion(logits.reshape(-1, logits.size(-1)), batch["labels"].reshape(-1))
-            losses.append(float(loss.item()))
             valid = batch["labels"] != -100
+            n_targets = int(valid.sum().item())
+            if n_targets:
+                loss = criterion(logits.reshape(-1, logits.size(-1)), batch["labels"].reshape(-1))
+                total_loss += float(loss.item()) * n_targets
+                total_targets += n_targets
             all_y.extend(batch["labels"][valid].cpu().tolist())
             all_pred.extend(logits.argmax(-1)[valid].cpu().tolist())
     return {
-        "loss": float(np.mean(losses)) if losses else float("nan"),
+        "loss": total_loss / total_targets if total_targets else float("nan"),
         "accuracy": float(accuracy_score(all_y, all_pred)),
         "macro_f1": float(f1_score(all_y, all_pred, average="macro", zero_division=0)),
         "y_true": all_y, "y_pred": all_pred,
