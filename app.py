@@ -246,9 +246,10 @@ elif mode == "Run trained model":
                     st.session_state.guided_form_version += 1
                     st.session_state.guided_manifest_bytes = None
                     st.session_state.guided_zip_bytes = None
-                    st.success(
-                        f"Visit added. {len(st.session_state.guided_visits)} visit(s) now in the review table."
-                    )
+                    # The current script run has already created widgets with the previous
+                    # visit-version keys. Rerun immediately so the browser receives the
+                    # fresh keys before the user starts entering the next visit.
+                    st.rerun()
     if st.session_state.guided_visits:
         # Keep the current count visible across reruns; success notices are transient UI feedback.
         st.caption(f"Visits in review table: {len(st.session_state.guided_visits)}")
