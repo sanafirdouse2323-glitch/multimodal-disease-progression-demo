@@ -1,0 +1,4 @@
+# Optional browser interface dependencies.
+# Install this file only when you want to run app.py with Streamlit.
+-r requirements.txt
+streamlit>=1.36.0

@@ -71,6 +71,12 @@ class RawImageTemporalFusionTests(unittest.TestCase):
                 set(feature_cols),
                 {"C_hemoglobin", "W_steps", "T_duration_days", "M_dose_mg"},
             )
+            duplicated_scan = frame.copy()
+            duplicated_scan.loc[1] = duplicated_scan.loc[0]
+            duplicated_scan.loc[1, "patient_id"] = "P2"
+            duplicated_scan.loc[1, "stage"] = 1
+            with self.assertRaisesRegex(ValueError, "assigned to multiple patient_id"):
+                validate_manifest(duplicated_scan, root)
 
     def test_categorical_text_is_encoded_and_unseen_values_are_handled(self):
         frame = pd.DataFrame({
@@ -89,9 +95,52 @@ class RawImageTemporalFusionTests(unittest.TestCase):
         self.assertIn("C_sex__category_0", columns)
         self.assertIn("C_sex__unknown", columns)
         self.assertIn("M_medicine_name__unknown", columns)
-        self.assertEqual(encoded.loc[2, "C_sex__unknown"], 1.0)
-        self.assertEqual(encoded.loc[2, "M_medicine_name__unknown"], 1.0)
-        self.assertEqual(encoded.loc[0, "C_sex__unknown"], 0.0)
+        sex_category_cols = [col for col in columns if col.startswith("C_sex__category_")]
+        medicine_category_cols = [col for col in columns if col.startswith("M_medicine_name__category_")]
+        self.assertEqual(float(encoded.loc[2, sex_category_cols].sum()), 0.0)
+        self.assertEqual(float(encoded.loc[2, medicine_category_cols].sum()), 0.0)
+        self.assertEqual(float(encoded.loc[2, "C_sex__unknown"]), 0.0)
+        self.assertEqual(float(encoded.loc[2, "M_medicine_name__unknown"]), 0.0)
+        self.assertEqual(float(encoded.loc[0, sex_category_cols].sum()), 1.0)
+        self.assertEqual(float(encoded.loc[0, medicine_category_cols].sum()), 1.0)
+
+    def test_categorical_feature_absent_from_training_stays_missing(self):
+        frame = pd.DataFrame({
+            "patient_id": ["P1", "P2"],
+            "image_path": ["a", "b"],
+            "stage": [0, 1],
+            "visit_idx": [0, 0],
+            "time_months": [0.0, 0.0],
+            "M_medicine_name": [pd.NA, "UnexpectedMedicine"],
+        })
+        schema = fit_feature_schema(frame.iloc[[0]], ["M_medicine_name"])
+        encoded, columns = encode_feature_frame(frame, schema)
+        self.assertTrue(columns)
+        self.assertTrue(encoded.loc[:, columns].isna().to_numpy().all())
+
+    def test_visit_indices_and_timeline_are_validated(self):
+        base = pd.DataFrame({
+            "patient_id": ["P1", "P1"],
+            "image_path": ["a.nii.gz", "b.nii.gz"],
+            "stage": [0, 1],
+            "visit_idx": [0, 1],
+            "time_months": [0.0, 6.0],
+            "C_age": [45.0, 46.0],
+        })
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("a.nii.gz", "b.nii.gz"):
+                sitk.WriteImage(sitk.GetImageFromArray(np.zeros((4, 4, 4), dtype=np.float32)), str(root / name))
+            valid, _ = validate_manifest(base, root)
+            self.assertEqual(valid["visit_idx"].tolist(), [0, 1])
+            invalid_index = base.copy()
+            invalid_index["visit_idx"] = [0.0, 1.5]
+            with self.assertRaisesRegex(ValueError, "visit_idx"):
+                validate_manifest(invalid_index, root)
+            invalid_time = base.copy()
+            invalid_time["time_months"] = [6.0, 0.0]
+            with self.assertRaisesRegex(ValueError, "time_months must not decrease"):
+                validate_manifest(invalid_time, root)
 
     def test_end_to_end_fusion_training_smoke_test(self):
         with tempfile.TemporaryDirectory() as directory:

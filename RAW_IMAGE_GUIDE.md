@@ -47,7 +47,27 @@ For a small smoke run on a suitably prepared dataset:
 python train_raw_image_model.py --manifest raw_images_manifest.csv --epochs 2 --batch-size 1 --image-size 32 --modality generic
 ```
 
-The script writes a model checkpoint, training history and run summary to `raw_image_results/`. Test metrics are only meaningful for the supplied labelled dataset and patient split.
+The script writes a versioned `raw_image_3dcnn.pt` checkpoint, training history and run summary to `raw_image_results/`. The checkpoint contains model weights, architecture/version metadata, and the exact image preprocessing settings used at training time. Test metrics are only meaningful for the supplied labelled dataset and patient split.
+
+## Image-only checkpoint inference
+
+To run inference after training, create a separate CSV with one row per scan. Only `patient_id` and `image_path` are required; `visit_idx` and `time_months` are optional. Ground-truth `stage` labels are not required for prediction.
+
+```csv
+patient_id,image_path,visit_idx,time_months
+SUBJECT_A,images/SUBJECT_A/followup.nii.gz,1,6
+SUBJECT_B,images/SUBJECT_B/baseline.nii.gz,0,0
+```
+
+Run:
+
+```bash
+python predict_raw_image_model.py --checkpoint raw_image_results/raw_image_3dcnn.pt --manifest prediction_manifest.csv --output predictions.csv
+```
+
+Relative image paths are resolved from the prediction manifest's directory. The CLI uses the checkpoint's saved modality, voxel size, target spacing and CT window values; it intentionally does not offer inference-time overrides that could silently make preprocessing differ from training. The output includes `predicted_stage`, `confidence`, and `prob_stage_0` through `prob_stage_3`. Probabilities are model outputs and are not necessarily calibrated. Older weights-only checkpoints cannot be used by this CLI because they do not record preprocessing metadata; retrain with the current trainer to create a compatible artifact.
+
+The artifact format is versioned. Keep the checkpoint together with its training manifest provenance, run summary, dependency environment, and the relevant source revision. Do not load checkpoints from untrusted sources.
 
 ### Modality and intensity preprocessing
 
@@ -83,7 +103,7 @@ The prefixes are a naming convention to keep the CSV organised; they do not tran
 
 If your real data has the **same columns and encodings**, copy the template and replace the example values, patient IDs, image paths, and verified stage labels. If your dataset has different numeric measurements, rename those feature columns using the correct prefix (for example, `C_hemoglobin`) and keep the required columns `patient_id`, `image_path`, `stage`, and `visit_idx`. You do not need to edit the model code just to add a new numeric feature with one of the four prefixes. For prediction, use the same feature names and encodings that were used for training; the checkpoint records the training feature columns.
 
-**Numeric and categorical data are both supported.** You may enter age as a number (for example, `C_age=45`), sex as text (for example, `C_sex=Female` or `C_sex=Male`), and medicine names as text (for example, `M_medicine_name=Metformin`). During training, the pipeline learns category vocabularies from training patients only and converts categorical columns into one-hot features. At prediction time it reuses the saved mappings; an unseen category is handled with an unknown-category feature, and a missing value remains missing. You do not need to manually encode these text categories.
+**Numeric and categorical data are both supported.** You may enter age as a number (for example, `C_age=45`), sex as text (for example, `C_sex=Female` or `C_sex=Male`), and medicine names as text (for example, `M_medicine_name=Metformin`). During training, the pipeline learns category vocabularies from training patients only and converts categorical columns into one-hot features. At prediction time it reuses the saved mappings. A category seen during training activates its corresponding one-hot column. A previously unseen category maps to all-zero category columns; the reserved unknown column remains zero because no unknown-category examples trained its weight. Missing values retain missingness masks, and categorical fields with no observed training categories are treated as unavailable at prediction. You do not need to manually encode these text categories.
 
 Use one consistent spelling for each category where possible, keep measurement units consistent, and document what each variable means. The code does not infer medical equivalence between different medicine names or spellings. Keep feature names consistent between training and prediction. Use only data you are authorised to process, and retrain the model when the training data or feature definitions change.
 

@@ -4,10 +4,10 @@ The Streamlit interface gives the repository a browser-based visual front end.
 
 ## Run locally
 
-From the repository root:
+Streamlit is excluded from the core `requirements.txt`. To install only the core dependencies, use `python -m pip install -r requirements.txt`. To run this browser interface, install the optional interface dependency file instead (it also includes the core requirements):
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -r requirements-streamlit.txt
 streamlit run app.py
 ```
 

@@ -20,6 +20,29 @@ import pandas as pd
 import streamlit as st
 import torch
 
+
+def _snapshot_guided_scan_upload(widget_key: str, snapshot_key: str, error_key: str) -> None:
+    """Persist a completed file-uploader selection before later widget reruns."""
+    uploaded = st.session_state.get(widget_key)
+    if uploaded is None:
+        return
+
+    scan_name = Path(uploaded.name).name
+    allowed_suffixes = (".nii", ".nii.gz", ".mha", ".nrrd")
+    if not scan_name.lower().endswith(allowed_suffixes):
+        st.session_state.pop(snapshot_key, None)
+        st.session_state[error_key] = (
+            "Unsupported scan file extension. Use .nii, .nii.gz, .mha, or .nrrd."
+        )
+        return
+
+    st.session_state[snapshot_key] = {
+        "name": scan_name,
+        "bytes": uploaded.getvalue(),
+    }
+    st.session_state.pop(error_key, None)
+
+
 st.set_page_config(page_title="Multimodal Disease-Progression Demo", page_icon="🧠", layout="wide")
 
 st.title("Multimodal Disease-Progression Demo")
@@ -137,58 +160,97 @@ elif mode == "Run trained model":
     st.markdown("### Guided entry: add one scan visit at a time")
     st.write("First upload the trained checkpoint above. Then enter the patient/visit details, attach that visit's scan, and fill in the features used by that checkpoint. Add another visit for each later scan.")
     if checkpoint_metadata is not None:
-        with st.form(f"guided_visit_form_{st.session_state.guided_form_version}", clear_on_submit=False):
-            patient_id_input = st.text_input("Pseudonymous patient ID (same ID for the same person across visits)", placeholder="P001")
-            col_visit, col_months = st.columns(2)
-            with col_visit:
-                visit_idx_input = st.number_input("Visit order (baseline = 0, next = 1, ...)", min_value=0, value=0, step=1)
-            with col_months:
-                time_months_input = st.number_input("Months since baseline (baseline = 0)", min_value=0.0, value=0.0, step=1.0)
-            scan_upload = st.file_uploader("Scan for this visit (3D image file, e.g. .nii or .nii.gz)", type=["nii", "gz", "mha", "nrrd"], key=f"guided_scan_upload_{st.session_state.guided_form_version}")
-            st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
-            grouped_fields = {
-                "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
-                "Treatment features": [x for x in raw_feature_fields if x.startswith("T_")],
-                "Medicine features": [x for x in raw_feature_fields if x.startswith("M_")],
-                "Wearable features": [x for x in raw_feature_fields if x.startswith("W_")],
-            }
-            feature_values = {}
-            for group_name, fields in grouped_fields.items():
-                if fields:
-                    with st.expander(group_name, expanded=(group_name == "Clinical features")):
-                        for field in fields:
-                            if field in categorical_fields:
-                                feature_values[field] = st.text_input(
-                                    f"{field} (category/text; leave blank if unavailable)",
-                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
-                                    help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
-                                )
-                            else:
-                                feature_values[field] = st.text_input(
-                                    f"{field} (number; leave blank if unavailable)",
-                                    key=f"guided_{st.session_state.guided_form_version}_{field}",
-                                    help="Use the same units and definitions as the training data. Do not guess missing values."
-                                )
-            add_visit = st.form_submit_button("Add this visit to the review table")
+        patient_id_input = st.text_input(
+            "Pseudonymous patient ID (same ID for the same person across visits)",
+            placeholder="P001",
+            key=f"guided_patient_id_{st.session_state.guided_form_version}",
+        )
+        col_visit, col_months = st.columns(2)
+        with col_visit:
+            visit_idx_input = st.number_input(
+                "Visit order (baseline = 0, next = 1, ...)",
+                min_value=0, value=0, step=1,
+                key=f"guided_visit_idx_{st.session_state.guided_form_version}",
+            )
+        with col_months:
+            time_months_input = st.number_input(
+                "Months since baseline (baseline = 0)",
+                min_value=0.0, value=0.0, step=1.0,
+                key=f"guided_time_months_{st.session_state.guided_form_version}",
+            )
+        scan_widget_key = f"guided_scan_upload_{st.session_state.guided_form_version}"
+        scan_snapshot_key = f"guided_scan_bytes_{st.session_state.guided_form_version}"
+        scan_error_key = f"guided_scan_upload_error_{st.session_state.guided_form_version}"
+        scan_upload = st.file_uploader(
+            "Scan for this visit (3D image file, e.g. .nii or .nii.gz)",
+            # Validate compound extensions ourselves so browser accept filters do
+            # not incorrectly hide .nii.gz files on some Streamlit/browser versions.
+            type=None,
+            key=scan_widget_key,
+            on_change=_snapshot_guided_scan_upload,
+            args=(scan_widget_key, scan_snapshot_key, scan_error_key),
+        )
+        # The callback snapshots the upload before normal script execution. This
+        # guarded fallback also handles sessions created before the callback ran.
+        if scan_upload is not None and scan_snapshot_key not in st.session_state:
+            _snapshot_guided_scan_upload(scan_widget_key, scan_snapshot_key, scan_error_key)
+        scan_error = st.session_state.get(scan_error_key)
+        if scan_error:
+            st.error(scan_error)
+        scan_snapshot = st.session_state.get(scan_snapshot_key)
+        if scan_snapshot is not None:
+            st.caption(f"Scan attached: {scan_snapshot['name']}")
+        else:
+            st.caption("No scan attached yet.")
+        st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
+        grouped_fields = {
+            "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
+            "Treatment features": [x for x in raw_feature_fields if x.startswith("T_")],
+            "Medicine features": [x for x in raw_feature_fields if x.startswith("M_")],
+            "Wearable features": [x for x in raw_feature_fields if x.startswith("W_")],
+        }
+        feature_values = {}
+        for group_name, fields in grouped_fields.items():
+            if fields:
+                # Keep all checkpoint-required feature groups open in the guided form.
+                # Collapsed widgets are easy to miss and complicate accessible browser use.
+                with st.expander(
+                    group_name,
+                    expanded=(group_name in {"Clinical features", "Medicine features"}),
+                ):
+                    for field in fields:
+                        if field in categorical_fields:
+                            feature_values[field] = st.text_input(
+                                f"{field} (category/text; leave blank if unavailable)",
+                                key=f"guided_{st.session_state.guided_form_version}_{field}",
+                                help="Enter the category value as represented in the training data. Unknown values are handled by the model's encoding pipeline."
+                            )
+                        else:
+                            feature_values[field] = st.text_input(
+                                f"{field} (number; leave blank if unavailable)",
+                                key=f"guided_{st.session_state.guided_form_version}_{field}",
+                                help="Use the same units and definitions as the training data. Do not guess missing values."
+                            )
+        add_visit = st.button("Add this visit to the review table", key=f"guided_add_visit_{st.session_state.guided_form_version}")
         if add_visit:
             pid = patient_id_input.strip()
             if not pid:
                 st.error("Enter a pseudonymous patient ID.")
             elif int(visit_idx_input) == 0 and float(time_months_input) != 0.0:
                 st.error("For baseline visit index 0, months since baseline must be 0.")
-            elif scan_upload is None:
+            elif scan_snapshot is None:
                 st.error("Attach the scan for this visit.")
             elif any(str(v["patient_id"]) == pid and int(v["visit_idx"]) == int(visit_idx_input) for v in st.session_state.guided_visits):
                 st.error("That patient already has this visit index. Choose a different visit index or remove the existing row.")
             else:
                 safe_pid = re.sub(r"[^A-Za-z0-9_-]+", "_", pid).strip("_") or "patient"
-                original_name = Path(scan_upload.name).name
+                original_name = Path(scan_snapshot["name"]).name
                 safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", original_name) or "scan.bin"
                 archive_path = f"scans/entry{len(st.session_state.guided_visits) + 1:04d}_{safe_pid}_visit{int(visit_idx_input)}_{safe_name}"
                 row = {
                     "patient_id": pid, "image_path": archive_path,
                     "visit_idx": int(visit_idx_input), "time_months": float(time_months_input),
-                    "_scan_name": archive_path, "_scan_bytes": scan_upload.getvalue(),
+                    "_scan_name": archive_path, "_scan_bytes": scan_snapshot["bytes"],
                 }
                 numeric_fields = set((checkpoint_metadata.get("feature_schema") or {}).get("numeric_columns", checkpoint_metadata.get("feature_columns", [])))
                 invalid = []
@@ -213,8 +275,13 @@ elif mode == "Run trained model":
                     st.session_state.guided_form_version += 1
                     st.session_state.guided_manifest_bytes = None
                     st.session_state.guided_zip_bytes = None
-                    st.success("Visit added. Review the table below; add another visit if needed.")
+                    # The current script run has already created widgets with the previous
+                    # visit-version keys. Rerun immediately so the browser receives the
+                    # fresh keys before the user starts entering the next visit.
+                    st.rerun()
     if st.session_state.guided_visits:
+        # Keep the current count visible across reruns; success notices are transient UI feedback.
+        st.caption(f"Visits in review table: {len(st.session_state.guided_visits)}")
         st.markdown("#### Review entered visits")
         display_rows = [{k: v for k, v in row.items() if not k.startswith("_scan_")} for row in st.session_state.guided_visits]
         st.dataframe(pd.DataFrame(display_rows), use_container_width=True)
@@ -253,7 +320,10 @@ elif mode == "Run trained model":
                             archive.writestr(row["_scan_name"], row["_scan_bytes"])
                     st.session_state.guided_manifest_bytes = manifest_buffer.getvalue().encode("utf-8")
                     st.session_state.guided_zip_bytes = zip_buffer.getvalue()
-                    st.success("Files prepared. Download them for your records, or use them directly below for inference.")
+                    st.success(
+                        f"Files prepared for {len(rows)} visit(s). Download them for your records, "
+                        "or use them directly below for inference."
+                    )
         with col_clear:
             if st.button("Clear all entered visits"):
                 st.session_state.guided_form_version += 1

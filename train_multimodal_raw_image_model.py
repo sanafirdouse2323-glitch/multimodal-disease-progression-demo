@@ -74,18 +74,27 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
     frame["stage"] = stage.astype(int)
     if not frame["stage"].isin([0, 1, 2, 3]).all():
         raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
-    visits = pd.to_numeric(frame["visit_idx"], errors="raise")
-    if not np.isfinite(visits.to_numpy(dtype=float)).all():
-        raise ValueError("visit_idx must contain finite numeric values.")
-    frame["visit_idx"] = visits.astype(float)
+    visit_values = pd.to_numeric(frame["visit_idx"], errors="raise").to_numpy(dtype=float)
+    if (not np.isfinite(visit_values).all()
+            or not np.equal(visit_values, np.floor(visit_values)).all()
+            or (visit_values < 0).any()):
+        raise ValueError("visit_idx must contain non-negative integers.")
+    frame["visit_idx"] = visit_values.astype(np.int64)
     if "time_months" not in frame.columns:
         frame["time_months"] = frame["visit_idx"]
-    times = pd.to_numeric(frame["time_months"], errors="raise")
-    if not np.isfinite(times.to_numpy(dtype=float)).all():
-        raise ValueError("time_months must contain finite numeric values.")
-    frame["time_months"] = times.astype(float)
+    time_values = pd.to_numeric(frame["time_months"], errors="raise").to_numpy(dtype=float)
+    if not np.isfinite(time_values).all() or (time_values < 0).any():
+        raise ValueError("time_months must contain finite, non-negative values.")
+    frame["time_months"] = time_values
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
+    ordered_visits = frame.sort_values(["patient_id", "visit_idx"])
+    for patient_id, patient_visits in ordered_visits.groupby("patient_id", sort=False):
+        patient_times = patient_visits["time_months"].to_numpy(dtype=float)
+        if (np.diff(patient_times) < 0).any():
+            raise ValueError(
+                f"time_months must not decrease across visits for patient {patient_id!r}."
+            )
     feature_cols = [
         col for col in frame.columns
         if col in ALL_FEATURES or col.startswith(GROUP_PREFIXES)
@@ -109,6 +118,9 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> tuple[pd.DataFrame
         path = Path(value).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
     frame["image_path"] = frame["image_path"].map(resolve_path)
+    patient_owners = frame.groupby("image_path")["patient_id"].nunique()
+    if (patient_owners > 1).any():
+        raise ValueError("An image_path cannot be assigned to multiple patient_id values.")
     for path in frame["image_path"]:
         if not Path(path).exists():
             raise FileNotFoundError(f"Image path in manifest does not exist: {path}")
@@ -159,18 +171,24 @@ def encode_feature_frame(frame: pd.DataFrame, schema: dict) -> tuple[pd.DataFram
         raw = frame[col].astype("string").str.strip() if col in frame else pd.Series(pd.NA, index=frame.index, dtype="string")
         raw = raw.replace("", pd.NA)
         names = [f"{col}__category_{i}" for i in range(len(categories))]
+        # Keep the zero-valued unknown column for checkpoint-schema compatibility.
+        # Never activate it: no unknown examples occur in the training vocabulary,
+        # so its weight is not learned. Unseen categories therefore map to all zeros.
         unknown_name = f"{col}__unknown"
         columns = names + [unknown_name]
         for name in columns:
             encoded[name] = 0.0
         for row_index, value in raw.items():
-            if pd.isna(value):
+            if pd.isna(value) or not categories:
+                # If no category was observed during training, there is no
+                # learned representation for this feature. Preserve it as
+                # missing at inference instead of activating an untrained mask.
                 for name in columns:
                     encoded.at[row_index, name] = np.nan
             elif str(value) in categories:
                 encoded.at[row_index, names[categories.index(str(value))]] = 1.0
-            else:
-                encoded.at[row_index, unknown_name] = 1.0
+            # Unseen values with a non-empty training vocabulary intentionally
+            # leave all category columns at zero while remaining observed.
         feature_cols.extend(columns)
     return encoded, feature_cols
 
@@ -317,21 +335,25 @@ def move_batch(batch, device):
 
 def evaluate(model, loader, device):
     model.eval()
-    ys, preds, losses = [], [], []
+    ys, preds = [], []
+    total_loss, total_targets = 0.0, 0
     criterion = nn.CrossEntropyLoss(ignore_index=-100)
     with torch.no_grad():
         for batch in loader:
             batch = move_batch(batch, device)
             logits = model(batch)
-            loss = criterion(logits.reshape(-1, 4), batch["labels"].reshape(-1))
-            losses.append(float(loss.item()))
             valid = batch["labels"] != -100
+            n_targets = int(valid.sum().item())
+            if n_targets:
+                loss = criterion(logits.reshape(-1, 4), batch["labels"].reshape(-1))
+                total_loss += float(loss.item()) * n_targets
+                total_targets += n_targets
             ys.extend(batch["labels"][valid].cpu().tolist())
             preds.extend(logits.argmax(-1)[valid].cpu().tolist())
     if not ys:
         raise ValueError("Evaluation split contains no labelled visits.")
     return {
-        "loss": float(np.mean(losses)),
+        "loss": total_loss / total_targets,
         "accuracy": float(accuracy_score(ys, preds)),
         "macro_f1": float(f1_score(ys, preds, average="macro", zero_division=0)),
         "n_visits": len(ys),
@@ -435,7 +457,26 @@ def main():
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
     torch.save({
-        "model_state_dict": model.state_dict(),
+        "artifact_type": "multimodal-disease-progression.multimodal-raw-image",
+        "artifact_version": 1,
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "model_config": {"n_features": len(feature_cols), "n_classes": 4},
+        "class_labels": {"0": "stage_0", "1": "stage_1", "2": "stage_2", "3": "stage_3"},
+        "training": {
+            "seed": int(args.seed),
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "batch_size_patients": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "gradient_clip_norm": 2.0,
+            "early_stopping_patience": 4,
+            "best_validation_loss": float(best_loss),
+            "selected_checkpoint_by": "lowest validation cross-entropy",
+        },
         "n_features": len(feature_cols),
         "feature_columns": feature_cols,
         "feature_stats": stats,
@@ -450,6 +491,24 @@ def main():
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "causal longitudinal stage classification with raw scan + tabular fusion",
+        "seed": int(args.seed),
+        "training": {
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "batch_size_patients": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "gradient_clip_norm": 2.0,
+            "early_stopping_patience": 4,
+            "best_validation_loss": float(best_loss),
+        },
+        "artifact": {
+            "path": "multimodal_raw_model.pt",
+            "type": "multimodal-disease-progression.multimodal-raw-image",
+            "version": 1,
+            "architecture": "RawImageTemporalFusionModel",
+        },
         "n_scans": int(len(frame)), "n_patients": int(frame.patient_id.nunique()),
         "n_feature_columns": len(feature_cols), "feature_columns": feature_cols,
         "split_patients": {

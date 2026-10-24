@@ -31,6 +31,8 @@ The model predicts the **current stage at each visit** using that visit's availa
 - pandas
 - scikit-learn
 - matplotlib
+- SimpleITK for the optional raw-image pipeline
+- Streamlit only if you want the optional browser interface (installed separately)
 
 ## Setup
 
@@ -56,12 +58,14 @@ Activate the environment:
 source .venv/bin/activate
 ```
 
-Install dependencies and run:
+Install the project into the active environment and run the synthetic demo:
 
 ```bash
-python -m pip install -r requirements.txt
+python -m pip install -e .
 python demo_disease_progression.py
 ```
+
+The editable install registers CLI entry points: `mdp-demo`, `mdp-train-image`, `mdp-predict-image`, `mdp-train-multimodal`, and `mdp-predict-multimodal`. To install only the core dependencies without registering commands, `python -m pip install -r requirements.txt` remains supported. The optional browser UI can be installed separately with `python -m pip install -r requirements-streamlit.txt` or `python -m pip install -e ".[browser]"`.
 
 The script prints held-out test metrics and saves the following files under `results/`:
 
@@ -69,29 +73,132 @@ The script prints held-out test metrics and saves the following files under `res
 - `training_history.csv` — training and validation loss and validation metrics by epoch
 - `training_curve.png` — training/validation loss plot
 - `transformer_confusion_matrix.png` — test-set confusion matrix
-- `run_summary.json` — run configuration, split sizes, metrics, and interpretation note
+- `synthetic_transformer.pt` — versioned Transformer artifact with feature schema, training-only scaling statistics, model configuration, seed, and synthetic-only limitation metadata
+- `run_summary.json` — run configuration, split sizes, metrics, artifact reference, and interpretation note
 
 Results are generated when you run the script; no scores are claimed in advance.
 
-## Run tests
+## Run the project in Replit
+
+Replit-specific configuration is kept on the separate [`replit/standalone-workspace` branch](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo/tree/replit/standalone-workspace). This core development branch intentionally has no root `.replit` configuration. The dedicated Replit branch configures Replit's **Run** button to execute `python demo_disease_progression.py`; Streamlit remains optional and is not required for the core synthetic demo.
+
+1. In [Replit](https://replit.com/), create a **separate workspace** by importing [this repository](https://github.com/sanafirdouse2323-glitch/multimodal-disease-progression-demo). Keep your existing Replit workspace unchanged if it contains separate work.
+2. In the new Replit Shell, select the dedicated Replit configuration branch:
+
+   ```bash
+   git fetch origin
+   git switch replit/standalone-workspace
+   ```
+
+   This branch holds the root `.replit` file; the core development branch does not. Keep workspaces separate by importing a second Replit workspace rather than switching branches in a workspace you want to leave untouched.
+
+3. Install dependencies in the Shell. The CPU-only PyTorch command is suitable for a CPU workspace:
+
+   ```bash
+   python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+   python -m pip install -r requirements.txt
+   ```
+
+4. Click **Run**. It should run the core synthetic Python demo and write its results to `results/`.
+
+### Optional: open the Streamlit interface
+
+Streamlit is not installed by `requirements.txt`. To use the browser interface, first install its separate optional dependency file in the Replit Shell:
 
 ```bash
+python -m pip install -r requirements-streamlit.txt
+```
+
+Then run this instead of the core demo:
+
+```bash
+python -m streamlit run app.py --server.address 0.0.0.0 --server.port 8501 --server.headless true --browser.gatherUsageStats false
+```
+
+Open the Replit Webview when Streamlit starts. This interface is optional; it is a separate way to interact with the project, not the training entry point. The guided file-upload/browser-inference flow is still under separate validation, so do not assume that interface is fully verified just because the core Python workflow passes. Use synthetic files while testing.
+
+## Run the raw-image pipeline end to end (synthetic smoke test)
+
+The repository has two separate raw-image training paths:
+
+- `train_raw_image_model.py` trains an image-only 3D CNN and saves a versioned checkpoint containing inference preprocessing metadata. `predict_raw_image_model.py` loads that artifact and emits per-scan class probabilities.
+- `train_multimodal_raw_image_model.py` trains a raw-image + tabular longitudinal model. `predict_multimodal_raw_image_model.py` runs inference from that model's saved checkpoint.
+
+Both need 3D image files and manifest CSVs. To verify the pipeline without having a medical dataset ready, run:
+
+```bash
+python run_synthetic_raw_image_demo.py
+```
+
+This script generates artificial NIfTI volumes and valid manifests for 20 synthetic subjects with two visits each. It then trains and evaluates both raw-image models for one epoch and runs two-visit inference using the multimodal checkpoint. It checks that the code paths execute; the synthetic metrics are **not** evidence of clinical accuracy or real-world performance.
+
+By default, generated data and results are saved in `raw_image_smoke_demo/`:
+
+- `scans/` — synthetic NIfTI files
+- `training_manifest.csv` and `prediction_manifest.csv` — manifests for training and inference
+- `image_only_results/` — image-only checkpoint, training history, and run summary
+- `multimodal_results/` — multimodal checkpoint, training history, and run summary
+- `predictions.csv` — two-visit prediction output
+
+The script regenerates its own `SYNTH_...` scan files and manifests each time it is run. This 3D-CNN smoke test takes longer and uses more CPU than the core demo, so the default Replit Run button intentionally does not run it.
+
+### Image-only checkpoint inference
+
+After training `train_raw_image_model.py` on your authorised labelled data, use a separate prediction CSV with `patient_id` and `image_path` (optional `visit_idx` and `time_months`; no stage label is required):
+
+```bash
+mdp-predict-image --checkpoint raw_image_results/raw_image_3dcnn.pt --manifest prediction_manifest.csv --output predictions.csv
+```
+
+Or run `python predict_raw_image_model.py` with the same arguments if you have not installed the project entry points. Inference reads preprocessing settings from the checkpoint, resolves relative image paths from the prediction CSV, validates the input, and outputs predicted stage, confidence, and four class probabilities. This is research inference, not a clinical decision tool.
+
+### Train on an authorised dataset
+
+For real research data, do not use the synthetic demo labels or measurements. Prepare an accurate manifest using verified labels and the actual image paths for your authorised dataset, then follow [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md). For the longitudinal multimodal model, the basic command is:
+
+```bash
+python train_multimodal_raw_image_model.py --manifest multimodal_raw_manifest.csv --modality generic
+```
+
+The manifest needs one row per patient visit, including `patient_id`, `image_path`, integer `stage` labels from 0 to 3, and `visit_idx`, plus at least one supported tabular feature. Every referenced scan must exist. The script uses patient-level train/validation/test splits. Its output describes performance only on the supplied labelled dataset and does not establish clinical validity.
+
+## Run core tests without the browser interface
+
+On Replit/Linux, run the unit and CLI integration tests without launching Streamlit or requiring Playwright/Chromium:
+
+```bash
+SKIP_STREAMLIT_BROWSER_TEST=1 python -m unittest discover -s tests -v
+```
+
+In Windows PowerShell, set the environment variable first:
+
+```powershell
+$env:SKIP_STREAMLIT_BROWSER_TEST = "1"
 python -m unittest discover -s tests -v
 ```
 
+The raw-image training/checkpoint/prediction tests still run. Only the extra browser automation portion is skipped. The Streamlit browser test is a separate workflow and requires Playwright plus Chromium.
+
 ## Main implementation
 
-- `demo_disease_progression.py` — synthetic data generation, preprocessing, sequence batching, model, baselines, evaluation, and plots
-- `tests/test_demo.py` — small checks for the data pipeline, patient splits, padding, and model output
-- `requirements.txt` — dependencies
+- `demo_disease_progression.py` — synthetic tabular/longitudinal data generation, preprocessing, model, baselines, evaluation, and plots
+- `train_raw_image_model.py` — image-only raw-volume 3D CNN
+- `train_multimodal_raw_image_model.py` — raw-image + tabular longitudinal model
+- `predict_multimodal_raw_image_model.py` — checkpoint-based multimodal per-visit inference
+- `run_synthetic_raw_image_demo.py` — generates toy NIfTI scans and exercises both raw-image training paths
+- `tests/` — unit, smoke, and CLI integration tests
+- `requirements.txt` — core Python dependencies; does not install Streamlit
+- `requirements-streamlit.txt` — optional browser-interface dependencies, including the core requirements
 
 ## Limitations
 
 - Synthetic data only; no real-world or clinical validation.
 - The data-generating process is intentionally simplified and may not capture real disease biology or care pathways.
 - The treatment process is simulated and cannot support claims about real treatment effects.
-- The current task is stage classification, not survival analysis or future progression forecasting.
+- The current core task is stage classification, not survival analysis or future progression forecasting.
+- The raw-image scripts classify supplied visit-stage labels; they do not infer or verify labels and do not establish future progression.
 - A single seeded run is for demonstration; stronger evaluation would require repeated seeds and real datasets with appropriate access, governance, and outcome definitions.
+- Raw-image normalization, orientation, target spacing, and center crop/padding must be reviewed for the specific scan modality, anatomy, and task.
 
 ## Direct raw CT/MRI image input (research starter)
 
@@ -101,7 +208,7 @@ See [RAW_IMAGE_GUIDE.md](RAW_IMAGE_GUIDE.md) for the image-only baseline, prepro
 
 ## Visual interactive interface
 
-A Streamlit web interface is available in `app.py`. Run `python -m pip install -r requirements.txt` followed by `streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
+A Streamlit web interface is available in `app.py`, but it is not part of the core installation. To use it, run `python -m pip install -r requirements-streamlit.txt` followed by `python -m streamlit run app.py` to open it in your browser. It includes an explicitly illustrative demo view, a trained-checkpoint inference view, and model/limitations information. See [VISUAL_DEMO_GUIDE.md](VISUAL_DEMO_GUIDE.md) for setup and input-file requirements. The illustrative demo does not run the model; real inference requires a trained checkpoint, a prediction manifest, and the corresponding scan files.
 
 ## License
 

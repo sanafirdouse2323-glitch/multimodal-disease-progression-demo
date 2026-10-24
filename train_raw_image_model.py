@@ -223,19 +223,47 @@ def validate_manifest(frame: pd.DataFrame, base_dir: Path) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Manifest is missing required columns: {sorted(missing)}")
     frame = frame.copy()
+    if frame.empty:
+        raise ValueError("Manifest has no rows.")
     if frame[list(required)].isna().any().any():
         raise ValueError("Manifest contains empty patient_id, image_path, or stage values.")
-    frame["patient_id"] = frame["patient_id"].astype(str)
-    numeric_stage = pd.to_numeric(frame["stage"], errors="raise")
-    if not np.all(numeric_stage == numeric_stage.astype(int)):
-        raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
-    frame["stage"] = numeric_stage.astype(int)
+    frame["patient_id"] = frame["patient_id"].astype(str).str.strip()
+    frame["image_path"] = frame["image_path"].astype(str).str.strip()
+    if (frame["patient_id"] == "").any() or (frame["image_path"] == "").any():
+        raise ValueError("patient_id and image_path must not be blank.")
+    stage_values = pd.to_numeric(frame["stage"], errors="raise").to_numpy(dtype=float)
+    if (not np.isfinite(stage_values).all()
+            or not np.equal(stage_values, np.floor(stage_values)).all()):
+        raise ValueError("stage labels must be finite integer values 0, 1, 2, or 3.")
+    frame["stage"] = stage_values.astype(np.int64)
     if not frame["stage"].isin([0, 1, 2, 3]).all():
         raise ValueError("stage labels must be integer values 0, 1, 2, or 3.")
+    if "visit_idx" in frame.columns:
+        visit_values = pd.to_numeric(frame["visit_idx"], errors="raise").to_numpy(dtype=float)
+        if (not np.isfinite(visit_values).all()
+                or not np.equal(visit_values, np.floor(visit_values)).all()
+                or (visit_values < 0).any()):
+            raise ValueError("visit_idx must contain non-negative integers.")
+        frame["visit_idx"] = visit_values.astype(np.int64)
+    if "time_months" in frame.columns:
+        time_values = pd.to_numeric(frame["time_months"], errors="raise").to_numpy(dtype=float)
+        if not np.isfinite(time_values).all() or (time_values < 0).any():
+            raise ValueError("time_months must contain finite, non-negative values.")
+        frame["time_months"] = time_values
+        if "visit_idx" in frame.columns:
+            ordered = frame.sort_values(["patient_id", "visit_idx"])
+            for patient_id, patient_visits in ordered.groupby("patient_id", sort=False):
+                if (np.diff(patient_visits["time_months"].to_numpy(dtype=float)) < 0).any():
+                    raise ValueError(
+                        f"time_months must not decrease across visits for patient {patient_id!r}."
+                    )
     def resolve_path(value):
         path = Path(str(value)).expanduser()
         return str(path if path.is_absolute() else (base_dir / path).resolve())
     frame["image_path"] = frame["image_path"].map(resolve_path)
+    patient_owners = frame.groupby("image_path")["patient_id"].nunique()
+    if (patient_owners > 1).any():
+        raise ValueError("An image_path cannot be assigned to multiple patient_id values.")
     if "visit_idx" in frame.columns:
         frame = frame.sort_values(["patient_id", "visit_idx"]).reset_index(drop=True)
     if frame.duplicated(["patient_id", "image_path"]).any():
@@ -338,12 +366,17 @@ def main():
             optimizer.step()
             losses.append(float(loss.item()))
         model.eval()
-        valid_losses = []
+        valid_loss_sum, valid_count = 0.0, 0
         with torch.no_grad():
             for images, labels in valid_loader:
                 images, labels = images.to(device), labels.to(device)
-                valid_losses.append(float(criterion(model(images), labels).item()))
-        val_loss = float(np.mean(valid_losses))
+                batch_loss = criterion(model(images), labels)
+                batch_count = int(labels.numel())
+                valid_loss_sum += float(batch_loss.item()) * batch_count
+                valid_count += batch_count
+        if valid_count == 0:
+            raise ValueError("Validation split contains no scans.")
+        val_loss = valid_loss_sum / valid_count
         history.append({"epoch": epoch, "train_loss": float(np.mean(losses)), "validation_loss": val_loss})
         print(f"Epoch {epoch:02d}: train_loss={np.mean(losses):.4f}, validation_loss={val_loss:.4f}")
         if val_loss < best_loss:
@@ -360,19 +393,53 @@ def main():
     metrics = evaluate(model, test_loader, device)
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    torch.save(model.state_dict(), out / "raw_image_3dcnn.pt")
+    preprocessing = {
+        "modality": args.modality,
+        "image_size_voxels": int(args.image_size),
+        "target_spacing_mm": float(args.target_spacing_mm),
+        "orientation": "LPS before physical-space resampling",
+        "cube_policy": "center crop/pad after normalization; no anisotropic stretching",
+        "ct_window_low": float(args.ct_window_low) if args.modality == "ct" else None,
+        "ct_window_high": float(args.ct_window_high) if args.modality == "ct" else None,
+    }
+    checkpoint = {
+        "artifact_type": "multimodal-disease-progression.image-only-3dcnn",
+        "artifact_version": 1,
+        "architecture": "Small3DCNN",
+        "model_config": {"n_classes": 4},
+        "model_state_dict": {
+            key: value.detach().cpu().clone() for key, value in model.state_dict().items()
+        },
+        "preprocessing": preprocessing,
+        "class_labels": {"0": "stage_0", "1": "stage_1", "2": "stage_2", "3": "stage_3"},
+        "training": {
+            "seed": int(args.seed),
+            "epochs_requested": int(args.epochs),
+            "epochs_completed": len(history),
+            "batch_size": int(args.batch_size),
+            "optimizer": "AdamW",
+            "learning_rate": 0.001,
+            "weight_decay": 0.0001,
+            "early_stopping_patience": 4,
+            "best_validation_loss": float(best_loss),
+            "selected_checkpoint_by": "lowest validation cross-entropy",
+        },
+    }
+    torch.save(checkpoint, out / "raw_image_3dcnn.pt")
     pd.DataFrame(history).to_csv(out / "training_history.csv", index=False)
     summary = {
         "task": "supervised 3D scan classification",
+        "seed": int(args.seed),
+        "training": checkpoint["training"],
         "input": "raw 3D medical volumes (NIfTI files or one-series-per-directory DICOM)",
+        "artifact": {
+            "path": "raw_image_3dcnn.pt",
+            "type": checkpoint["artifact_type"],
+            "version": checkpoint["artifact_version"],
+            "architecture": checkpoint["architecture"],
+        },
         "preprocessing": {
-            "modality": args.modality,
-            "image_size_voxels": args.image_size,
-            "target_spacing_mm": args.target_spacing_mm,
-            "orientation": "LPS before physical-space resampling",
-            "cube_policy": "center crop/pad after normalization; no anisotropic stretching",
-            "ct_window_low": args.ct_window_low if args.modality == "ct" else None,
-            "ct_window_high": args.ct_window_high if args.modality == "ct" else None,
+            **preprocessing,
             "note": "Images are reoriented to LPS and resampled to target_spacing_mm; fixed-size inputs are center-cropped/padded, which may crop anatomy. Validate field of view for the intended dataset."
         },
         "n_scans": len(frame), "n_patients": int(frame.patient_id.nunique()),

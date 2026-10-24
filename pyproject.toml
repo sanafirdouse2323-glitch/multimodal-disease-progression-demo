@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multimodal-disease-progression-demo"
+version = "0.1.0"
+description = "Research demo for synthetic longitudinal disease-stage modelling and optional raw-image experiments"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24.0",
+  "pandas>=2.0.0",
+  "scikit-learn>=1.3.0",
+  "matplotlib>=3.7.0",
+  "torch>=2.0.0",
+  "SimpleITK>=2.3.0",
+]
+
+[project.optional-dependencies]
+browser = ["streamlit>=1.36.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.6.0"]
+
+[project.scripts]
+mdp-demo = "demo_disease_progression:main"
+mdp-train-image = "train_raw_image_model:main"
+mdp-predict-image = "predict_raw_image_model:main"
+mdp-train-multimodal = "train_multimodal_raw_image_model:main"
+mdp-predict-multimodal = "predict_multimodal_raw_image_model:main"
+
+[tool.setuptools]
+py-modules = [
+  "app",
+  "demo_disease_progression",
+  "train_raw_image_model",
+  "predict_raw_image_model",
+  "train_multimodal_raw_image_model",
+  "predict_multimodal_raw_image_model",
+  "run_synthetic_raw_image_demo",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]

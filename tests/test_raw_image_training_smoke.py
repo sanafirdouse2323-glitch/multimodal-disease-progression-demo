@@ -10,6 +10,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
+import torch
 
 from train_raw_image_model import main
 
@@ -38,7 +39,15 @@ class RawImageTrainingSmokeTest(unittest.TestCase):
             ]
             with patch("sys.argv", argv), contextlib.redirect_stdout(io.StringIO()):
                 main()
-            self.assertTrue((output / "raw_image_3dcnn.pt").is_file())
+            checkpoint_path = output / "raw_image_3dcnn.pt"
+            self.assertTrue(checkpoint_path.is_file())
+            checkpoint = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+            self.assertEqual(checkpoint.get("artifact_type"),
+                             "multimodal-disease-progression.image-only-3dcnn")
+            self.assertEqual(checkpoint.get("artifact_version"), 1)
+            self.assertEqual(checkpoint.get("architecture"), "Small3DCNN")
+            self.assertEqual(checkpoint["preprocessing"]["image_size_voxels"], 16)
+            self.assertIn("model_state_dict", checkpoint)
             self.assertTrue((output / "training_history.csv").is_file())
             summary = json.loads((output / "run_summary.json").read_text(encoding="utf-8"))
             self.assertEqual(summary["task"], "supervised 3D scan classification")
@@ -46,6 +55,31 @@ class RawImageTrainingSmokeTest(unittest.TestCase):
             self.assertEqual(summary["n_patients"], 10)
             self.assertIn("accuracy", summary["test_metrics"])
             self.assertIn("macro_f1", summary["test_metrics"])
+
+            # Verify the actual training artifact, not only a hand-built test checkpoint.
+            prediction_manifest = root / "prediction.csv"
+            pd.DataFrame([
+                {"patient_id": row["patient_id"], "image_path": row["image_path"]}
+                for row in rows[:2]
+            ]).to_csv(prediction_manifest, index=False)
+            prediction_output = output / "predictions.csv"
+            with patch("sys.argv", [
+                "predict_raw_image_model.py",
+                "--checkpoint", str(checkpoint_path),
+                "--manifest", str(prediction_manifest),
+                "--output", str(prediction_output),
+                "--device", "cpu",
+            ]), contextlib.redirect_stdout(io.StringIO()):
+                from predict_raw_image_model import main as predict_main
+                predict_main()
+            self.assertTrue(prediction_output.is_file())
+            predictions = pd.read_csv(prediction_output)
+            self.assertEqual(len(predictions), 2)
+            self.assertTrue(predictions["predicted_stage"].isin([0, 1, 2, 3]).all())
+            np.testing.assert_allclose(
+                predictions[[f"prob_stage_{i}" for i in range(4)]].sum(axis=1).to_numpy(),
+                np.ones(2), atol=1e-5,
+            )
 
 
 if __name__ == "__main__":

@@ -60,6 +60,27 @@ class DemoPipelineTests(unittest.TestCase):
         self.assertEqual(features.shape[0], len(labels))
         self.assertTrue(np.isfinite(features).all())
 
+    def test_synthetic_checkpoint_bundles_schema_and_training_only_stats(self):
+        means, stds = demo.fit_feature_stats(self.raw)
+        checkpoint = demo.build_synthetic_transformer_checkpoint(
+            demo.MultimodalTemporalModel(), means, stds,
+            seed=123, history=[{"epoch": 1, "val_loss": 0.5}],
+        )
+        self.assertEqual(
+            checkpoint["artifact_type"],
+            "multimodal-disease-progression.synthetic-tabular-transformer",
+        )
+        self.assertEqual(checkpoint["artifact_version"], 1)
+        self.assertEqual(checkpoint["data_scope"], "synthetic-generated-only")
+        self.assertEqual(checkpoint["model_config"]["n_classes"], 4)
+        self.assertEqual(set(checkpoint["feature_groups"]), set(demo.GROUPS))
+        self.assertEqual(set(checkpoint["feature_stats"]), {
+            col for columns in demo.GROUPS.values() for col in columns
+        })
+        self.assertAlmostEqual(checkpoint["training"]["best_validation_loss"], 0.5)
+        self.assertTrue(all(torch.is_tensor(value)
+                            for value in checkpoint["model_state_dict"].values()))
+
     def test_collation_marks_padding_and_model_outputs_finite_logits(self):
         patient_ids = sorted(self.raw["patient_id"].unique())
         train = self.raw[self.raw.patient_id.isin(patient_ids[:12])].copy()
