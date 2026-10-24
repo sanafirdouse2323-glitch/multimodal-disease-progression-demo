@@ -81,7 +81,7 @@ def make_synthetic_dataset(output_dir: Path, patients: int, seed: int) -> tuple[
     return training_manifest, prediction_manifest
 
 
-def run(command: list[str], *, label: str, output_dir: Path) -> None:
+def run(command: list[str], *, label: str) -> None:
     print(f"\n=== {label} ===", flush=True)
     print("$ " + shlex.join(command), flush=True)
     environment = os.environ.copy()
@@ -135,7 +135,7 @@ def main() -> None:
         "--modality", "generic",
         "--output-dir", str(image_only_results),
         "--seed", str(args.seed),
-    ], label="Image-only 3D CNN: train and evaluate", output_dir=output_dir)
+    ], label="Image-only 3D CNN: train and evaluate")
 
     multimodal_results = output_dir / "multimodal_results"
     run([
@@ -159,7 +159,7 @@ def main() -> None:
         "--output", str(prediction_output),
         "--batch-size", str(args.batch_size),
         "--device", "cpu",
-    ], label="Multimodal checkpoint: predict two visits", output_dir=output_dir)
+    ], label="Multimodal checkpoint: predict two visits")
 
     print("\nSynthetic raw-image smoke run completed.", flush=True)
     print(f"Training manifest: {training_manifest}", flush=True)
