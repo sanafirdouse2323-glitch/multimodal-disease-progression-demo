@@ -37,18 +37,27 @@ def prepare_prediction_manifest(frame: pd.DataFrame, base_dir: Path, checkpoint:
     frame["image_path"] = frame["image_path"].astype(str).str.strip()
     if (frame["patient_id"] == "").any() or (frame["image_path"] == "").any():
         raise ValueError("patient_id and image_path must not be blank.")
-    visit = pd.to_numeric(frame["visit_idx"], errors="raise")
-    if not np.isfinite(visit.to_numpy(dtype=float)).all():
-        raise ValueError("visit_idx must contain finite numeric values.")
-    frame["visit_idx"] = visit.astype(float)
+    visit_values = pd.to_numeric(frame["visit_idx"], errors="raise").to_numpy(dtype=float)
+    if (not np.isfinite(visit_values).all()
+            or not np.equal(visit_values, np.floor(visit_values)).all()
+            or (visit_values < 0).any()):
+        raise ValueError("visit_idx must contain non-negative integers.")
+    frame["visit_idx"] = visit_values.astype(np.int64)
     if "time_months" not in frame.columns:
         frame["time_months"] = frame["visit_idx"]
-    times = pd.to_numeric(frame["time_months"], errors="raise")
-    if not np.isfinite(times.to_numpy(dtype=float)).all():
-        raise ValueError("time_months must contain finite numeric values.")
-    frame["time_months"] = times.astype(float)
+    time_values = pd.to_numeric(frame["time_months"], errors="raise").to_numpy(dtype=float)
+    if not np.isfinite(time_values).all() or (time_values < 0).any():
+        raise ValueError("time_months must contain finite, non-negative values.")
+    frame["time_months"] = time_values
     if frame.duplicated(["patient_id", "visit_idx"]).any():
         raise ValueError("Each patient must have at most one scan row per visit_idx.")
+    ordered_visits = frame.sort_values(["patient_id", "visit_idx"])
+    for patient_id, patient_visits in ordered_visits.groupby("patient_id", sort=False):
+        patient_times = patient_visits["time_months"].to_numpy(dtype=float)
+        if (np.diff(patient_times) < 0).any():
+            raise ValueError(
+                f"time_months must not decrease across visits for patient {patient_id!r}."
+            )
     schema = checkpoint.get("feature_schema")
     if schema:
         raw_feature_cols = list(schema["numeric_columns"]) + list(schema["categorical_categories"].keys())
