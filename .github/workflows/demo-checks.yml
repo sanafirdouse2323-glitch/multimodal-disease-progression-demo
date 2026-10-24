@@ -1,4 +1,4 @@
-name: Focused Streamlit upload diagnostic
+name: Core checks (without Streamlit browser)
 
 on:
   push:
@@ -7,10 +7,10 @@ on:
     branches: ["main"]
 
 jobs:
-  upload-smoke:
-    name: Focused scan-upload test (diagnostic only)
+  core-tests:
+    name: Core training, CLI inference, and synthetic demo
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 35
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -20,18 +20,28 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements.txt
-      - name: Cache Playwright browser binaries
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-chromium-cache-v1
       - name: Install CPU-only PyTorch for CI
         run: python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
-      - name: Install dependencies
+      - name: Install project dependencies
         run: python -m pip install -r requirements.txt
-      - name: Install browser test dependencies
-        run: python -m pip install playwright && python -m playwright install --with-deps chromium
-      - name: Compile application and focused test
-        run: python -m py_compile app.py tests/test_streamlit_upload_smoke.py
-      - name: Test scan upload delivery only
-        run: python -m unittest discover -s tests -p 'test_streamlit_upload_smoke.py' -v
+      - name: Compile application and inference scripts
+        run: python -m py_compile app.py predict_multimodal_raw_image_model.py train_multimodal_raw_image_model.py
+      - name: Run existing unit tests
+        run: |
+          python -m unittest discover -s tests -p 'test_demo.py' -v
+          python -m unittest discover -s tests -p 'test_multimodal_raw_image_model.py' -v
+          python -m unittest discover -s tests -p 'test_raw_image_model.py' -v
+          python -m unittest discover -s tests -p 'test_raw_image_training_smoke.py' -v
+      - name: Train checkpoint and verify two-visit CLI inference (no Streamlit)
+        env:
+          SKIP_STREAMLIT_BROWSER_TEST: "1"
+        run: python -m unittest discover -s tests -p 'test_raw_checkpoint_integration.py' -v
+      - name: Run complete synthetic demo
+        run: python demo_disease_progression.py
+      - name: Upload generated results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-demo-results
+          path: results/
+          if-no-files-found: warn

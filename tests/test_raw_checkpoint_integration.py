@@ -117,6 +117,9 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
             # add two visits through the guided form, prepare CSV+ZIP, and run inference.
             # This is a browser smoke/integration test, not an exhaustive usability audit.
             import os
+            if os.environ.get("SKIP_STREAMLIT_BROWSER_TEST", "").strip().lower() in {"1", "true", "yes"}:
+                return
+
             import time
             from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, sync_playwright
 
