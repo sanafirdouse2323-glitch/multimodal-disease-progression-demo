@@ -102,7 +102,7 @@ class RawImagePipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "must not be blank"):
                 validate_manifest(blank_id, Path(directory))
             invalid_visit = frame.copy()
-            invalid_visit.loc[1, "visit_idx"] = 1.5
+            invalid_visit["visit_idx"] = [0.0, 1.5]
             with self.assertRaisesRegex(ValueError, "visit_idx"):
                 validate_manifest(invalid_visit, Path(directory))
             invalid_time = frame.copy()
