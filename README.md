@@ -141,11 +141,22 @@ python train_multimodal_raw_image_model.py --manifest multimodal_raw_manifest.cs
 
 The manifest needs one row per patient visit, including `patient_id`, `image_path`, integer `stage` labels from 0 to 3, and `visit_idx`, plus at least one supported tabular feature. Every referenced scan must exist. The script uses patient-level train/validation/test splits. Its output describes performance only on the supplied labelled dataset and does not establish clinical validity.
 
-## Run tests
+## Run core tests without the browser interface
+
+On Replit/Linux, run the unit and CLI integration tests without launching Streamlit or requiring Playwright/Chromium:
 
 ```bash
+SKIP_STREAMLIT_BROWSER_TEST=1 python -m unittest discover -s tests -v
+```
+
+In Windows PowerShell, set the environment variable first:
+
+```powershell
+$env:SKIP_STREAMLIT_BROWSER_TEST = "1"
 python -m unittest discover -s tests -v
 ```
+
+The raw-image training/checkpoint/prediction tests still run. Only the extra browser automation portion is skipped. The Streamlit browser test is a separate workflow and requires Playwright plus Chromium.
 
 ## Main implementation
 
