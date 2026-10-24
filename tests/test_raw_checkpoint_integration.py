@@ -186,7 +186,9 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # Baseline visit.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("0")
+                    spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("0")
+                    spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v0.nii.gz"))
                     page.get_by_text("P000_v0.nii.gz", exact=True).wait_for(timeout=20_000)
                     textbox("C_age (number; leave blank if unavailable)").fill("30")
@@ -202,7 +204,9 @@ class RawCheckpointIntegrationTest(unittest.TestCase):
                     # Follow-up visit. The app re-renders with a fresh visit-specific upload key after add.
                     textbox("Pseudonymous patient ID (same ID for the same person across visits)").fill("P001")
                     spinbutton("Visit order (baseline = 0, next = 1, ...)").fill("1")
+                    spinbutton("Visit order (baseline = 0, next = 1, ...)").press("Enter")
                     spinbutton("Months since baseline (baseline = 0)").fill("6")
+                    spinbutton("Months since baseline (baseline = 0)").press("Enter")
                     uploader_input("Scan for this visit (3D image file, e.g. .nii or .nii.gz)").set_input_files(str(scans / "P000_v1.nii.gz"))
                     # Streamlit may not expose the selected filename as ordinary page
                     # text in every version/theme. Verify the actual file input instead.
