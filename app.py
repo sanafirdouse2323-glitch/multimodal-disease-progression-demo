@@ -171,6 +171,10 @@ elif mode == "Run trained model":
         scan_snapshot = st.session_state.get(
             f"guided_scan_bytes_{st.session_state.guided_form_version}"
         )
+        if scan_snapshot is not None:
+            st.caption(f"Scan attached: {scan_snapshot['name']}")
+        else:
+            st.caption("No scan attached yet.")
         st.caption("Use a scan format supported by the repository's image reader. The file path will be generated automatically; you do not need to type it.")
         grouped_fields = {
             "Clinical features": [x for x in raw_feature_fields if x.startswith("C_") or not x.startswith(("T_", "M_", "W_"))],
